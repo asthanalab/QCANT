@@ -39,7 +39,7 @@ The output will be in `docs/_build/html`.
 
 ### Copyright
 
-Copyright (c) 2025, SRIVATHSAN P SUNDAR
+Copyright (c) 2025, Asthana Lab
 
 
 #### Acknowledgements
