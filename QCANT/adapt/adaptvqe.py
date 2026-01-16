@@ -12,7 +12,7 @@ require these dependencies.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Optional, Sequence
 
 
 def adapt_vqe(
@@ -25,6 +25,8 @@ def adapt_vqe(
     spin: int = 0,
     active_electrons: int,
     active_orbitals: int,
+    device_name: Optional[str] = None,
+    optimizer_maxiter: int = 100_000_000,
 ):
     """Run an ADAPT-style VQE loop for a user-specified molecular geometry.
 
@@ -90,8 +92,17 @@ def adapt_vqe(
         raise ImportError(
             "adapt_vqe requires optional dependencies. Install at least: "
             "`pip install numpy scipy pennylane pyscf` "
-            "(and a PennyLane device backend, e.g. `pip install pennylane-lightning`)."
+            "(and optionally a faster PennyLane device backend, e.g. `pip install pennylane-lightning`)."
         ) from exc
+
+    def _make_device(name: Optional[str], wires: int):
+        if name is not None:
+            return qml.device(name, wires=wires)
+        # Backwards-compatible preference for lightning if available.
+        try:
+            return qml.device("lightning.qubit", wires=wires)
+        except Exception:
+            return qml.device("default.qubit", wires=wires)
 
     # Build the molecule from user-provided symbols/geometry.
     # PySCF accepts either a multiline string or a list of (symbol, (x,y,z)).
@@ -137,7 +148,7 @@ def adapt_vqe(
     ash_excitation = []
 
     hf_state = qml.qchem.hf_state(active_electrons, qubits)
-    dev = qml.device("lightning.qubit", wires=qubits)
+    dev = _make_device(device_name, qubits)
 
     @qml.qnode(dev)
     def commutator_0(H, w, k):
@@ -168,7 +179,7 @@ def adapt_vqe(
                 )
         return qml.expval(H)
 
-    dev1 = qml.device("lightning.qubit", wires=qubits)
+    dev1 = _make_device(device_name, qubits)
 
     @qml.qnode(dev1)
     def new_state(hf_state, ash_excitation, params):
@@ -222,7 +233,13 @@ def adapt_vqe(
         ash_excitation.append(excitations)
 
         params = np.append(np.asarray(params), 0.0)
-        result = minimize(cost, params, method="BFGS", tol=1e-12, options={"disp": False, "maxiter": 1e8})
+        result = minimize(
+            cost,
+            params,
+            method="BFGS",
+            tol=1e-12,
+            options={"disp": False, "maxiter": int(optimizer_maxiter)},
+        )
 
         energies.append(result.fun)
         params = result.x

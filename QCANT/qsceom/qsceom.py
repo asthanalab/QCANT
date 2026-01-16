@@ -12,7 +12,7 @@ does not require these optional dependencies.
 
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Optional, Sequence, Tuple
 
 from .excitations import inite
 
@@ -23,9 +23,10 @@ def qscEOM(
     active_electrons: int,
     active_orbitals: int,
     charge: int,
-    params,
-    ash_excitation,
+    params=None,
+    ash_excitation=None,
     *,
+    ansatz: Optional[Tuple[Any, Any, Any]] = None,
     basis: str = "sto-3g",
     method: str = "pyscf",
     shots: int = 0,
@@ -56,6 +57,29 @@ def qscEOM(
     list
         Sorted eigenvalues for the constructed effective matrix.
     """
+
+    if ansatz is not None:
+        try:
+            params_from_adapt, ash_excitation_from_adapt, _energies = ansatz
+        except Exception as exc:
+            raise ValueError(
+                "ansatz must be a 3-tuple like (params, ash_excitation, energies) "
+                "as returned by QCANT.adapt_vqe"
+            ) from exc
+
+        params = params_from_adapt
+        ash_excitation = ash_excitation_from_adapt
+
+    if params is None or ash_excitation is None:
+        raise TypeError(
+            "qscEOM requires either (params, ash_excitation) or ansatz=(params, ash_excitation, energies)."
+        )
+
+    try:
+        if len(params) != len(ash_excitation):
+            raise ValueError
+    except Exception as exc:
+        raise ValueError("params and ash_excitation must have the same length") from exc
 
     try:
         import numpy as np
