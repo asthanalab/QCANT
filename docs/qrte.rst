@@ -35,7 +35,7 @@ Basic usage
    symbols = ["H", "H"]
    geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.5]])
 
-   basis_states, times = QCANT.qrte(
+   energies, basis_states, times = QCANT.qrte(
       symbols=symbols,
       geometry=geometry,
       delta_t=0.1,
@@ -49,13 +49,15 @@ Basic usage
    )
 
    print(times)
+   print(energies)
    print(basis_states.shape)
 
 Outputs
 -------
 
-The function returns ``(basis_states, times)``:
+The function returns ``(energies, basis_states, times)``:
 
+- ``energies``: eigenvalues obtained by diagonalizing the Hamiltonian in the generated basis
 - ``basis_states``: statevectors after each step, shape ``(n_steps+1, 2**n_qubits)``
 - ``times``: times associated with each vector, shape ``(n_steps+1,)``
 

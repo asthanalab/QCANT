@@ -26,11 +26,15 @@ def qrte(
     method: str = "pyscf",
     device_name: Optional[str] = None,
     trotter_steps: int = 1,
-) -> Tuple["object", "object"]:
-    """Run a quantum real-time evolution loop and return a basis of states.
+    overlap_tol: float = 1e-10,
+) -> Tuple["object", "object", "object"]:
+    """Run a quantum real-time evolution loop and return energies from the generated basis.
 
     At each step the current state is evolved by ``delta_t`` under the molecular
-    Hamiltonian, producing a new state which is appended to the returned basis.
+    Hamiltonian, producing a new state which is appended to the basis.
+
+    Once the basis is generated, the molecular Hamiltonian is projected into this
+    (generally non-orthogonal) basis and diagonalized to obtain approximate energies.
 
     Parameters
     ----------
@@ -60,11 +64,17 @@ def qrte(
         the function will prefer ``"lightning.qubit"`` if available.
     trotter_steps
         Number of Trotter steps used internally by :class:`pennylane.ApproxTimeEvolution`.
+    overlap_tol
+        Threshold for discarding near-linearly dependent basis vectors when
+        orthonormalizing the basis via the overlap matrix eigen-decomposition.
 
     Returns
     -------
     tuple
-        ``(basis_states, times)`` where:
+                ``(energies, basis_states, times)`` where:
+
+                - ``energies`` is a real-valued array of eigenvalues obtained by diagonalizing
+                    the Hamiltonian projected into the generated basis
 
         - ``basis_states`` is a complex-valued array with shape ``(n_steps+1, 2**n_qubits)``
         - ``times`` is a float array with shape ``(n_steps+1,)`` giving the time associated
@@ -81,6 +91,9 @@ def qrte(
     -----
     This routine requires analytic execution (statevector access). It uses a
     statevector device and returns the full wavefunction after each step.
+
+    The Hamiltonian projection currently uses a dense matrix representation of the
+    Hamiltonian, which scales as ``O(4**n_qubits)`` in memory.
     """
 
     if len(symbols) == 0:
@@ -91,6 +104,8 @@ def qrte(
         raise ValueError("n_steps must be >= 0")
     if trotter_steps < 1:
         raise ValueError("trotter_steps must be >= 1")
+    if overlap_tol <= 0:
+        raise ValueError("overlap_tol must be > 0")
 
     try:
         n_atoms = len(symbols)
@@ -164,4 +179,25 @@ def qrte(
         basis_states.append(psi)
 
     times = np.arange(n_steps + 1, dtype=float) * float(delta_t)
-    return np.stack(basis_states, axis=0), times
+
+    basis_states = np.stack(basis_states, axis=0)
+
+    # Project H into the non-orthogonal basis and diagonalize.
+    # S_ij = <psi_i|psi_j>,  H_ij = <psi_i|H|psi_j>
+    S = basis_states.conj() @ basis_states.T
+
+    H_dense = qml.matrix(H, wire_order=wires)
+    H_proj = basis_states.conj() @ (H_dense @ basis_states.T)
+
+    # Orthonormalize via overlap eigen-decomposition to avoid requiring S to be
+    # strictly positive definite (basis vectors can become nearly dependent).
+    s_vals, s_vecs = np.linalg.eigh(S)
+    keep = s_vals > float(overlap_tol)
+    if not keep.any():
+        raise ValueError("overlap matrix is numerically singular; basis collapsed")
+
+    X = s_vecs[:, keep] / np.sqrt(s_vals[keep])[None, :]
+    H_ortho = X.conj().T @ H_proj @ X
+    energies = np.linalg.eigvalsh(H_ortho).real
+
+    return energies, basis_states, times

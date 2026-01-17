@@ -9,7 +9,7 @@ def test_qrte_generates_basis_h2_sto3g():
     symbols = ["H", "H"]
     geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.5]])
 
-    basis_states, times = QCANT.qrte(
+    energies, basis_states, times = QCANT.qrte(
         symbols=symbols,
         geometry=geometry,
         delta_t=0.1,
@@ -32,3 +32,7 @@ def test_qrte_generates_basis_h2_sto3g():
     assert np.allclose(norms, 1.0, atol=1e-7)
 
     assert np.linalg.norm(basis_states[1] - basis_states[0]) > 1e-8
+
+    assert energies.ndim == 1
+    assert energies.size >= 1
+    assert np.all(np.isfinite(energies))
