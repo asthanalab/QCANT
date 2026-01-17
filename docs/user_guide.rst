@@ -32,4 +32,5 @@ Algorithms
 	:maxdepth: 1
 
 	adapt_vqe
+	qrte
 	qsceom

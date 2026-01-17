@@ -10,6 +10,8 @@ This section is generated from the docstrings in the QCANT package.
 
    QCANT.adapt_vqe
 
+   QCANT.qrte
+
    QCANT.qscEOM
 
    QCANT.canvas
