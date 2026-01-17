@@ -86,7 +86,7 @@ def qscEOM(
         import pennylane as qml
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "qscEOM requires optional dependencies. Install at least: "
+            "qscEOM requires dependencies. Install at least: "
             "`pip install numpy pennylane`."
         ) from exc
 

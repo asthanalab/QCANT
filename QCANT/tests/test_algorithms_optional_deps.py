@@ -1,8 +1,7 @@
-"""Tests for algorithm entry points without heavy optional dependencies.
+"""Tests for algorithm entry points.
 
-These tests are intentionally lightweight:
-- validate argument checking that should work without PennyLane/PySCF,
-- validate that a clear ImportError is raised when optional deps are missing.
+These tests focus on argument/contract behavior that should be fast and
+reliable.
 """
 
 from __future__ import annotations
@@ -26,37 +25,30 @@ def test_adapt_vqe_geometry_length_mismatch_raises_value_error():
         )
 
 
-def test_adapt_vqe_missing_optional_deps_raises_import_error():
+def test_qsceom_requires_ansatz_or_params_and_excitations():
     symbols = ["H", "H"]
     geometry = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]]
 
-    with pytest.raises(ImportError) as excinfo:
-        QCANT.adapt_vqe(
-            symbols=symbols,
-            geometry=geometry,
-            adapt_it=1,
-            active_electrons=2,
-            active_orbitals=2,
-        )
-
-    # Should guide users toward installing missing deps.
-    msg = str(excinfo.value).lower()
-    assert "pennylane" in msg or "pyscf" in msg
-
-
-def test_qsceom_missing_optional_deps_raises_import_error():
-    symbols = ["H", "H"]
-    geometry = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]]
-
-    with pytest.raises(ImportError) as excinfo:
+    with pytest.raises(TypeError):
         QCANT.qscEOM(
             symbols=symbols,
             geometry=geometry,
             active_electrons=2,
             active_orbitals=2,
             charge=0,
-            params=[0.0],
-            ash_excitation=[[0, 1]],
         )
 
-    assert "pennylane" in str(excinfo.value).lower()
+
+def test_qsceom_rejects_bad_ansatz_tuple():
+    symbols = ["H", "H"]
+    geometry = [[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]]
+
+    with pytest.raises(ValueError, match=r"ansatz must be a 3-tuple"):
+        QCANT.qscEOM(
+            symbols=symbols,
+            geometry=geometry,
+            active_electrons=2,
+            active_orbitals=2,
+            charge=0,
+            ansatz=([], []),
+        )

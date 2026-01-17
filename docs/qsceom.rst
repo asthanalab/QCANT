@@ -14,8 +14,10 @@ At a high level, the routine:
 
 Dependencies
 ------------
-This function requires optional dependencies. QCANT is designed so that ``import QCANT`` works
-without them, but calling :func:`QCANT.qscEOM` will raise :class:`ImportError` unless they are installed.
+This function requires scientific Python dependencies that are installed with QCANT.
+
+If you are developing from source and see :class:`ImportError`, install the required
+dependencies (see below).
 
 Minimum expected dependencies:
 

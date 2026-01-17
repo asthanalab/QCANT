@@ -15,10 +15,10 @@ import pytest
 
 
 def test_adapt_vqe_output_runs_qsceom_h2_sto3g_1p5a():
-    np = pytest.importorskip("numpy")
-    pytest.importorskip("scipy")
-    pytest.importorskip("pennylane")
-    pytest.importorskip("pyscf")
+    import numpy as np
+    import scipy  # noqa: F401
+    import pennylane  # noqa: F401
+    import pyscf  # noqa: F401
 
     import QCANT
 

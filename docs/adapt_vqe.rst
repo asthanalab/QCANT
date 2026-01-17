@@ -14,9 +14,10 @@ The implementation in QCANT is an experimental/script-style implementation of an
 
 Dependencies
 ------------
-This function requires optional, heavy scientific dependencies. QCANT is designed so that
-``import QCANT`` works without them, but calling :func:`QCANT.adapt_vqe` will raise
-:class:`ImportError` unless they are installed.
+This function requires scientific Python dependencies that are installed with QCANT.
+
+If you are developing from source and see :class:`ImportError`, install the required
+dependencies (see below).
 
 .. note::
 

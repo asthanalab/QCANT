@@ -90,7 +90,7 @@ def adapt_vqe(
         warnings.filterwarnings("ignore")
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "adapt_vqe requires optional dependencies. Install at least: "
+            "adapt_vqe requires dependencies. Install at least: "
             "`pip install numpy scipy pennylane pyscf` "
             "(and optionally a faster PennyLane device backend, e.g. `pip install pennylane-lightning`)."
         ) from exc

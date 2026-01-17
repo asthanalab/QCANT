@@ -7,7 +7,11 @@ dependencies:
   - pip
 
   # Runtime (lightweight base)
-  - numpy
+  - numpy<2
+  - scipy<2
+  - pennylane
+  - pyscf
+  - autoray<0.7
 
   # Testing
   - pytest
@@ -18,7 +22,5 @@ dependencies:
   - sphinx-design
   - sphinx-copybutton
 
-  # Note: Heavy/optional dependencies for ADAPT-VQE and qscEOM
-  # (pyscf, pennylane, scipy, basis_set_exchange, matplotlib, etc.)
-  # are intentionally NOT included here. Those functions will raise
-  # ImportError with instructions if called without dependencies.
+  # Note: additional optional dependencies may still improve performance
+  # (e.g. pennylane-lightning) but are not required.
