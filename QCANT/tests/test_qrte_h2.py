@@ -22,7 +22,6 @@ def test_qrte_generates_basis_h2_sto3g():
         device_name="default.qubit",
         trotter_steps=1,
     )
-
     assert basis_states.shape[0] == 3
     assert times.shape == (3,)
     assert abs(times[0] - 0.0) < 1e-12

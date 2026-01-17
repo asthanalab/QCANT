@@ -23,5 +23,8 @@ dependencies:
   - sphinx-design
   - sphinx-copybutton
 
+  # Examples
+  - matplotlib
+
   # Note: additional optional dependencies may still improve performance
   # (e.g. pennylane-lightning) but are not required.
