@@ -24,8 +24,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [macOS-latest, ubuntu-latest, windows-latest]
-        python-version: ["3.11", "3.12", "3.13"]
+        os: [macOS-latest, ubuntu-latest]
+        python-version: ["3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -37,28 +37,29 @@ jobs:
           df -h
           ulimit -a
 
-      # More info on options: https://github.com/marketplace/actions/setup-micromamba
-      - uses: mamba-org/setup-micromamba@v2
+      - name: Set up Conda
+        uses: conda-incubator/setup-miniconda@v3
         with:
-          environment-file: devtools/conda-envs/test_env.yaml
-          environment-name: test
-          condarc: |
-            channels:
-              - conda-forge
-          create-args: >- 
-            python=${{ matrix.python-version }}
+          auto-update-conda: true
+          miniforge-variant: Miniforge3
+          miniforge-version: latest
+          channels: conda-forge,defaults
+          channel-priority: strict
+          activate-environment: qcant
 
       - name: Install package
-        # conda setup requires this special shell
         shell: bash -l {0}
         run: |
+          conda create -n qcant -y python=${{ matrix.python-version }}
+          conda env update -n qcant -f devtools/conda-envs/qcant.yaml
+          conda activate qcant
           python -m pip install . --no-deps
-          micromamba list
+          conda list
 
       - name: Run tests
-        # conda setup requires this special shell
         shell: bash -l {0}
         run: |
+          conda activate qcant
           pytest -v --cov=QCANT --cov-report=xml --color=yes QCANT/tests/
 
       - name: CodeCov

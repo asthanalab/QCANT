@@ -15,6 +15,7 @@ dependencies:
 
   # Testing
   - pytest
+  - pytest-cov
 
   # Documentation
   - sphinx
