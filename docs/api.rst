@@ -12,6 +12,10 @@ This section is generated from the docstrings in the QCANT package.
 
    QCANT.qrte
 
+   QCANT.exact_krylov
+
+   QCANT.qkud
+
    QCANT.qscEOM
 
    QCANT.canvas

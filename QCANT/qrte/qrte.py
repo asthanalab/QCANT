@@ -133,7 +133,10 @@ def qrte(
 
     def _make_device(name: Optional[str], wires: int):
         if name is not None:
-            return qml.device(name, wires=wires)
+            try:
+                return qml.device(name, wires=wires)
+            except Exception:
+                return qml.device("default.qubit", wires=wires)
         try:
             return qml.device("lightning.qubit", wires=wires)
         except Exception:

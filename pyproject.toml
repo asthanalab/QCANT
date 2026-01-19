@@ -35,14 +35,14 @@ dependencies = [
     "scipy<2",
     "pennylane",
     "pyscf",
-    "autoray>=0.6.11,<0.7",
+    "autoray>=0.6.11,<0.9",
 ]
 
 
 [project.urls]
-Homepage = "https://github.com/srivathsanps-quantum/QCANT"
-Source = "https://github.com/srivathsanps-quantum/QCANT"
-Documentation = "https://srivathsanps-quantum.github.io/QCANT/"
+Homepage = "https://github.com/asthanalab/QCANT"
+Source = "https://github.com/asthanalab/QCANT"
+Documentation = "https://asthanalab.github.io/QCANT/"
 
 [project.optional-dependencies]
 test = [

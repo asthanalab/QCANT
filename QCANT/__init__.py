@@ -12,12 +12,16 @@ Public API
 from .QCANT import canvas
 from .adapt import adapt_vqe
 from .qrte import qrte
+from .krylov import exact_krylov
+from .qkud import qkud
 from .qsceom import qscEOM
 from ._version import __version__
 
 __all__ = [
 	"adapt_vqe",
 	"qrte",
+	"exact_krylov",
+	"qkud",
 	"qscEOM",
 	"canvas",
 	"__version__",
