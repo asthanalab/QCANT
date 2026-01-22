@@ -1,7 +1,7 @@
 QCANT
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/asthanalab/QCANT/workflows/CI/badge.svg)](https://github.com/asthanalab/QCANT/actions?query=workflow%3ACI)
+[![CI](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml/badge.svg?branch=main)](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/asthanalab/QCANT/branch/main/graph/badge.svg)](https://codecov.io/gh/asthanalab/QCANT/branch/main)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://asthanalab.github.io/QCANT/)
 
@@ -75,7 +75,7 @@ print(QCANT.canvas())
 
 Hosted documentation:
 
-- https://srivathsanps-quantum.github.io/QCANT/
+- https://asthanalab.github.io/QCANT/
 
 The documentation lives in `docs/` and is built with Sphinx:
 
