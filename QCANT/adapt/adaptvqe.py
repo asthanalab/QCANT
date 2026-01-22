@@ -26,6 +26,14 @@ def adapt_vqe(
     active_electrons: int,
     active_orbitals: int,
     device_name: Optional[str] = None,
+    shots: Optional[int] = None,
+    commutator_shots: Optional[int] = None,
+    commutator_mode: str = "ansatz",
+    commutator_debug: bool = False,
+    hamiltonian_cutoff: float = 1e-20,
+    pool_sample_size: Optional[int] = None,
+    pool_seed: Optional[int] = None,
+    optimizer_method: str = "BFGS",
     optimizer_maxiter: int = 100_000_000,
 ):
     """Run an ADAPT-style VQE loop for a user-specified molecular geometry.
@@ -52,6 +60,26 @@ def adapt_vqe(
         Number of active electrons in the CASCI reference.
     active_orbitals
         Number of active orbitals in the CASCI reference.
+    shots
+        If provided and > 0, run with shot-based sampling on the chosen device.
+    commutator_shots
+        If provided, override the shot count for commutator evaluations.
+    commutator_mode
+        ``"ansatz"`` uses the ansatz circuit to evaluate commutators; ``"statevec"``
+        prepares the current statevector via ``qml.StatePrep`` before measuring.
+    commutator_debug
+        If True, compute both commutator modes per operator and report the
+        maximum absolute difference per ADAPT iteration.
+    hamiltonian_cutoff
+        Drop Hamiltonian terms with absolute value below this cutoff when
+        building the fermionic operator.
+    pool_sample_size
+        If provided, randomly sample this many operators from the pool per
+        ADAPT iteration to reduce commutator evaluations.
+    pool_seed
+        Seed for the operator-pool sampler.
+    optimizer_method
+        SciPy optimization method (e.g. ``"BFGS"``, ``"COBYLA"``, ``"Nelder-Mead"``).
 
     Returns
     -------
@@ -68,6 +96,16 @@ def adapt_vqe(
 
     if len(symbols) == 0:
         raise ValueError("symbols must be non-empty")
+    if shots is not None and shots < 0:
+        raise ValueError("shots must be >= 0")
+    if commutator_shots is not None and commutator_shots < 0:
+        raise ValueError("commutator_shots must be >= 0")
+    if commutator_mode not in {"ansatz", "statevec"}:
+        raise ValueError("commutator_mode must be 'ansatz' or 'statevec'")
+    if hamiltonian_cutoff < 0:
+        raise ValueError("hamiltonian_cutoff must be >= 0")
+    if pool_sample_size is not None and pool_sample_size <= 0:
+        raise ValueError("pool_sample_size must be > 0")
 
     try:
         n_atoms = len(symbols)
@@ -95,14 +133,17 @@ def adapt_vqe(
             "(and optionally a faster PennyLane device backend, e.g. `pip install pennylane-lightning`)."
         ) from exc
 
-    def _make_device(name: Optional[str], wires: int):
+    def _make_device(name: Optional[str], wires: int, device_shots: Optional[int]):
+        kwargs = {}
+        if device_shots is not None and device_shots > 0:
+            kwargs["shots"] = device_shots
         if name is not None:
-            return qml.device(name, wires=wires)
+            return qml.device(name, wires=wires, **kwargs)
         # Backwards-compatible preference for lightning if available.
         try:
-            return qml.device("lightning.qubit", wires=wires)
+            return qml.device("lightning.qubit", wires=wires, **kwargs)
         except Exception:
-            return qml.device("default.qubit", wires=wires)
+            return qml.device("default.qubit", wires=wires, **kwargs)
 
     # Build the molecule from user-provided symbols/geometry.
     # PySCF accepts either a multiline string or a list of (symbol, (x,y,z)).
@@ -132,39 +173,37 @@ def adapt_vqe(
     en = mycas_ref.kernel()
     print("Ref.CASCI energy:", en[0])
 
-    two_mo = pyscf.ao2mo.restore("1", h2ecas, norb=mycas_ref.mo_coeff.shape[1])
+    ncas = int(mycas_ref.ncas)
+    two_mo = pyscf.ao2mo.restore("1", h2ecas, norb=ncas)
     two_mo = np.swapaxes(two_mo, 1, 3)
 
     one_mo = h1ecas
     core_constant = np.array([ecore])
 
-    H_fermionic = qml.qchem.fermionic_observable(core_constant, one_mo, two_mo, cutoff=1e-20)
+    H_fermionic = qml.qchem.fermionic_observable(
+        core_constant, one_mo, two_mo, cutoff=hamiltonian_cutoff
+    )
     H = qml.jordan_wigner(H_fermionic)
 
-    qubits = 2 * (mycas_ref.mo_coeff.shape[1])
+    qubits = 2 * ncas
     active_electrons = sum(mycas_ref.nelecas)
 
     energies = []
     ash_excitation = []
 
     hf_state = qml.qchem.hf_state(active_electrons, qubits)
-    dev = _make_device(device_name, qubits)
+    comm_shots = shots if commutator_shots is None else commutator_shots
+    if commutator_mode == "statevec" and comm_shots is not None and comm_shots > 0:
+        raise ValueError("commutator_mode='statevec' requires analytic commutator_shots")
+    if commutator_debug and comm_shots is not None and comm_shots > 0:
+        raise ValueError("commutator_debug requires analytic commutator_shots")
+    dev_comm = _make_device(device_name, qubits, comm_shots)
+    dev = _make_device(device_name, qubits, shots)
+    dev_state = None
+    dev_comm_state = None
 
-    @qml.qnode(dev)
-    def commutator_0(H, w, k):
-        qml.BasisState(k, wires=range(qubits))
-        res = qml.commutator(H, w)
-        return qml.expval(res)
-
-    @qml.qnode(dev)
-    def commutator_1(H, w, k):
-        qml.StatePrep(k, wires=range(qubits))
-        res = qml.commutator(H, w)
-        return qml.expval(res)
-
-    @qml.qnode(dev)
-    def ash(params, ash_excitation, hf_state, H):
-        [qml.PauliX(i) for i in np.nonzero(hf_state)[0]]
+    def _apply_ansatz(hf_state, ash_excitation, params):
+        qml.BasisState(hf_state, wires=range(qubits))
         for i, excitation in enumerate(ash_excitation):
             if len(ash_excitation[i]) == 4:
                 qml.FermionicDoubleExcitation(
@@ -177,29 +216,35 @@ def adapt_vqe(
                     weight=params[i],
                     wires=list(range(ash_excitation[i][0], ash_excitation[i][1] + 1)),
                 )
+
+    @qml.qnode(dev_comm)
+    def commutator_expectation(params, ash_excitation, hf_state, H, w):
+        _apply_ansatz(hf_state, ash_excitation, params)
+        res = qml.commutator(H, w)
+        return qml.expval(res)
+
+    if commutator_mode == "statevec" or commutator_debug:
+        dev_state = _make_device(device_name, qubits, None)
+        dev_comm_state = _make_device(device_name, qubits, None)
+
+        @qml.qnode(dev_state)
+        def current_state(params, ash_excitation, hf_state):
+            _apply_ansatz(hf_state, ash_excitation, params)
+            return qml.state()
+
+        @qml.qnode(dev_comm_state)
+        def commutator_expectation_state(state, H, w):
+            qml.StatePrep(state, wires=range(qubits))
+            res = qml.commutator(H, w)
+            return qml.expval(res)
+
+    @qml.qnode(dev)
+    def ash(params, ash_excitation, hf_state, H):
+        _apply_ansatz(hf_state, ash_excitation, params)
         return qml.expval(H)
 
-    dev1 = _make_device(device_name, qubits)
-
-    @qml.qnode(dev1)
-    def new_state(hf_state, ash_excitation, params):
-        [qml.PauliX(i) for i in np.nonzero(hf_state)[0]]
-        for i, excitations in enumerate(ash_excitation):
-            if len(ash_excitation[i]) == 4:
-                qml.FermionicDoubleExcitation(
-                    weight=params[i],
-                    wires1=list(range(ash_excitation[i][0], ash_excitation[i][1] + 1)),
-                    wires2=list(range(ash_excitation[i][2], ash_excitation[i][3] + 1)),
-                )
-            elif len(ash_excitation[i]) == 2:
-                qml.FermionicSingleExcitation(
-                    weight=params[i],
-                    wires=list(range(ash_excitation[i][0], ash_excitation[i][1] + 1)),
-                )
-        return qml.state()
-
     def cost(params):
-        return ash(params, ash_excitation, hf_state, H)
+        return float(np.real(ash(params, ash_excitation, hf_state, H)))
 
     singles, doubles = qml.qchem.excitations(active_electrons, qubits)
     op1 = [qml.fermi.FermiWord({(0, x[0]): "+", (1, x[1]): "-"}) for x in singles]
@@ -208,25 +253,42 @@ def adapt_vqe(
         for x in doubles
     ]
     operator_pool = op1 + op2
-    states = [hf_state]
+    operator_pool_ops = [qml.fermi.jordan_wigner(op) for op in operator_pool]
     params = pnp.zeros(len(ash_excitation), requires_grad=True)
+    rng = np.random.default_rng(pool_seed)
 
     for j in range(adapt_it):
         print("The adapt iteration now is", j, flush=True)
         max_value = float("-inf")
         max_operator = None
-        k = states[-1] if states else hf_state
+        max_diff = 0.0
+        state_for_comm = None
+        if commutator_mode == "statevec" or commutator_debug:
+            state_for_comm = current_state(params, ash_excitation, hf_state)
+        if pool_sample_size is None or pool_sample_size >= len(operator_pool_ops):
+            candidate_indices = range(len(operator_pool_ops))
+        else:
+            candidate_indices = rng.choice(
+                len(operator_pool_ops), size=pool_sample_size, replace=False
+            )
 
-        for i in operator_pool:
-            w = qml.fermi.jordan_wigner(i)
-            if np.array_equal(k, hf_state):
-                current_value = abs(2 * (commutator_0(H, w, k)))
+        for idx in candidate_indices:
+            w = operator_pool_ops[idx]
+            if commutator_mode == "statevec":
+                exp_used = commutator_expectation_state(state_for_comm, H, w)
             else:
-                current_value = abs(2 * (commutator_1(H, w, k)))
+                exp_used = commutator_expectation(params, ash_excitation, hf_state, H, w)
+            current_value = abs(2 * exp_used)
+            if commutator_debug:
+                if commutator_mode == "statevec":
+                    exp_other = commutator_expectation(params, ash_excitation, hf_state, H, w)
+                else:
+                    exp_other = commutator_expectation_state(state_for_comm, H, w)
+                max_diff = max(max_diff, abs(exp_used - exp_other))
 
             if current_value > max_value:
                 max_value = current_value
-                max_operator = i
+                max_operator = operator_pool[idx]
 
         indices_str = re.findall(r"\d+", str(max_operator))
         excitations = [int(index) for index in indices_str]
@@ -236,7 +298,7 @@ def adapt_vqe(
         result = minimize(
             cost,
             params,
-            method="BFGS",
+            method=optimizer_method,
             tol=1e-12,
             options={"disp": False, "maxiter": int(optimizer_maxiter)},
         )
@@ -244,8 +306,7 @@ def adapt_vqe(
         energies.append(result.fun)
         params = result.x
         print("Energies are", energies, flush=True)
-        ostate = new_state(hf_state, ash_excitation, params)
-        states.append(ostate)
-
+        if commutator_debug:
+            print(f"Max commutator diff: {max_diff:.6e}", flush=True)
     print("energies:", energies[-1])
     return params, ash_excitation, energies

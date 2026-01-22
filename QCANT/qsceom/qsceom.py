@@ -30,6 +30,10 @@ def qscEOM(
     basis: str = "sto-3g",
     method: str = "pyscf",
     shots: int = 0,
+    device_name: Optional[str] = None,
+    max_states: Optional[int] = None,
+    state_seed: Optional[int] = None,
+    symmetric: bool = True,
 ):
     """Compute qscEOM eigenvalues from an ansatz state.
 
@@ -51,6 +55,16 @@ def qscEOM(
         Excitation list describing the ansatz.
     shots
         If 0, run in analytic mode; otherwise use shot-based estimation.
+    device_name
+        Optional PennyLane device name (e.g. ``"lightning.qubit"``).
+    max_states
+        If provided, limit the number of occupation configurations used to
+        build the effective matrix.
+    state_seed
+        Seed for selecting a random subset when ``max_states`` is used.
+    symmetric
+        If True, compute only the upper-triangular off-diagonal elements and
+        mirror them to reduce circuit evaluations.
 
     Returns
     -------
@@ -74,6 +88,8 @@ def qscEOM(
         raise TypeError(
             "qscEOM requires either (params, ash_excitation) or ansatz=(params, ash_excitation, energies)."
         )
+    if max_states is not None and max_states <= 0:
+        raise ValueError("max_states must be > 0")
 
     try:
         if len(params) != len(ash_excitation):
@@ -107,14 +123,26 @@ def qscEOM(
 
     null_state = np.zeros(qubits, int)
     list1 = inite(active_electrons, qubits)
+    if max_states is not None and max_states < len(list1):
+        rng = np.random.default_rng(state_seed)
+        indices = rng.choice(len(list1), size=max_states, replace=False)
+        list1 = [list1[idx] for idx in sorted(indices)]
     values = []
 
     # Preserve original behavior (single iteration) from the prior script.
     for _ in range(1):
-        if shots == 0:
-            dev = qml.device("default.qubit", wires=qubits)
-        else:
-            dev = qml.device("default.qubit", wires=qubits, shots=shots)
+        def _make_device(name: Optional[str], wires: int):
+            kwargs = {}
+            if shots > 0:
+                kwargs["shots"] = shots
+            if name is not None:
+                return qml.device(name, wires=wires, **kwargs)
+            try:
+                return qml.device("lightning.qubit", wires=wires, **kwargs)
+            except Exception:
+                return qml.device("default.qubit", wires=wires, **kwargs)
+
+        dev = _make_device(device_name, qubits)
 
         @qml.qnode(dev)
         def circuit_d(params, occ, wires, s_wires, d_wires, hf_state, ash_excitation):
@@ -175,9 +203,9 @@ def qscEOM(
                 if i == j:
                     M[i, i] = circuit_d(params, list1[i], wires, s_wires, d_wires, null_state, ash_excitation)
 
-        for i in range(len(list1)):
-            for j in range(len(list1)):
-                if i != j:
+        if symmetric:
+            for i in range(len(list1)):
+                for j in range(i + 1, len(list1)):
                     Mtmp = circuit_od(
                         params,
                         list1[i],
@@ -188,7 +216,24 @@ def qscEOM(
                         null_state,
                         ash_excitation,
                     )
-                    M[i, j] = Mtmp - M[i, i] / 2.0 - M[j, j] / 2.0
+                    value = Mtmp - M[i, i] / 2.0 - M[j, j] / 2.0
+                    M[i, j] = value
+                    M[j, i] = value
+        else:
+            for i in range(len(list1)):
+                for j in range(len(list1)):
+                    if i != j:
+                        Mtmp = circuit_od(
+                            params,
+                            list1[i],
+                            list1[j],
+                            wires,
+                            s_wires,
+                            d_wires,
+                            null_state,
+                            ash_excitation,
+                        )
+                        M[i, j] = Mtmp - M[i, i] / 2.0 - M[j, j] / 2.0
 
         eig, _ = np.linalg.eig(M)
         values.append(np.sort(eig))

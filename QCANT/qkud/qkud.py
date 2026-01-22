@@ -26,6 +26,7 @@ def qkud(
     initial_state: Optional["object"] = None,
     overlap_tol: float = 1e-10,
     normalize_basis: bool = True,
+    basis_threshold: float = 0.0,
     use_sparse: bool = False,
     return_min_energy_history: bool = False,
 ) -> Tuple["object", "object"] | Tuple["object", "object", "object"]:
@@ -68,6 +69,10 @@ def qkud(
         orthonormalizing the basis via the overlap matrix eigen-decomposition.
     normalize_basis
         If True, normalize each Krylov vector to avoid numerical overflow.
+    basis_threshold
+        Drop amplitudes with absolute value below this threshold after each
+        basis update. The thresholded state is re-normalized. Use 0.0 to
+        disable thresholding.
     use_sparse
         If True, use a sparse Hamiltonian representation for state updates.
     return_min_energy_history
@@ -166,6 +171,22 @@ def qkud(
         raise ValueError("initial_state has zero norm")
     psi = psi / psi_norm
 
+    def _apply_basis_threshold(state):
+        if basis_threshold <= 0:
+            return state
+        state = np.asarray(state, dtype=complex)
+        mask = np.abs(state) >= basis_threshold
+        if not np.any(mask):
+            idx = int(np.argmax(np.abs(state)))
+            mask[idx] = True
+        state = np.where(mask, state, 0.0)
+        norm = np.linalg.norm(state)
+        if norm == 0:
+            raise ValueError("thresholded basis vector has zero norm")
+        return state / norm
+
+    psi = _apply_basis_threshold(psi)
+
     if use_sparse:
         try:
             import scipy.sparse  # noqa: F401
@@ -206,6 +227,7 @@ def qkud(
             if current_norm == 0:
                 raise ValueError("QKUD vector has zero norm")
             current = current / current_norm
+        current = _apply_basis_threshold(current)
         basis_states.append(current)
 
     basis_states = np.stack(basis_states, axis=0)

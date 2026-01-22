@@ -43,6 +43,13 @@ Basic usage
    print(basis_states.shape)
    print(min_history.shape)
 
+Options
+-------
+
+- ``use_sparse``: use a sparse Hamiltonian representation for state updates.
+- ``basis_threshold``: drop amplitudes below this threshold after each basis update and
+  re-normalize the state (use 0.0 to disable).
+
 Outputs
 -------
 

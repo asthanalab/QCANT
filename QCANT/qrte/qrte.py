@@ -27,6 +27,8 @@ def qrte(
     device_name: Optional[str] = None,
     trotter_steps: int = 1,
     overlap_tol: float = 1e-10,
+    use_sparse: bool = False,
+    basis_threshold: float = 0.0,
     return_min_energy_history: bool = False,
 ) -> Tuple["object", "object", "object"] | Tuple["object", "object", "object", "object"]:
     """Run a quantum real-time evolution loop and return energies from the generated basis.
@@ -68,6 +70,12 @@ def qrte(
     overlap_tol
         Threshold for discarding near-linearly dependent basis vectors when
         orthonormalizing the basis via the overlap matrix eigen-decomposition.
+    use_sparse
+        If True, use a sparse Hamiltonian representation for projections.
+    basis_threshold
+        Drop amplitudes with absolute value below this threshold after each
+        basis update. The thresholded state is re-normalized. Use 0.0 to
+        disable thresholding.
     return_min_energy_history
         If True, also return an array containing the minimum energy after each
         iteration as the basis grows from 1 to ``n_steps + 1`` vectors.
@@ -101,8 +109,9 @@ def qrte(
     This routine requires analytic execution (statevector access). It uses a
     statevector device and returns the full wavefunction after each step.
 
-    The Hamiltonian projection currently uses a dense matrix representation of the
-    Hamiltonian, which scales as ``O(4**n_qubits)`` in memory.
+    The Hamiltonian projection uses a dense matrix by default, which scales as
+    ``O(4**n_qubits)`` in memory. Set ``use_sparse=True`` to request a sparse
+    representation when available.
     """
 
     if len(symbols) == 0:
@@ -184,11 +193,37 @@ def qrte(
     psi = _hf_statevector()
     psi = psi / np.linalg.norm(psi)
 
-    H_dense = qml.matrix(H, wire_order=wires)
+    def _apply_basis_threshold(state):
+        if basis_threshold <= 0:
+            return state
+        state = np.asarray(state, dtype=complex)
+        mask = np.abs(state) >= basis_threshold
+        if not np.any(mask):
+            idx = int(np.argmax(np.abs(state)))
+            mask[idx] = True
+        state = np.where(mask, state, 0.0)
+        norm = np.linalg.norm(state)
+        if norm == 0:
+            raise ValueError("thresholded basis vector has zero norm")
+        return state / norm
+
+    psi = _apply_basis_threshold(psi)
+
+    if use_sparse:
+        try:
+            import scipy.sparse  # noqa: F401
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError("use_sparse=True requires scipy") from exc
+        if hasattr(H, "sparse_matrix") and getattr(H, "has_sparse_matrix", True):
+            H_mat = H.sparse_matrix(wire_order=wires, format="csr")
+        else:
+            H_mat = qml.matrix(H, wire_order=wires)
+    else:
+        H_mat = qml.matrix(H, wire_order=wires)
 
     def _project_min_energy(current_basis_states):
         S = current_basis_states.conj() @ current_basis_states.T
-        H_proj = current_basis_states.conj() @ (H_dense @ current_basis_states.T)
+        H_proj = current_basis_states.conj() @ (H_mat @ current_basis_states.T)
 
         s_vals, s_vecs = np.linalg.eigh(S)
         keep = s_vals > float(overlap_tol)
@@ -206,6 +241,7 @@ def qrte(
     for _ in range(n_steps):
         psi = _evolve(psi)
         psi = psi / np.linalg.norm(psi)
+        psi = _apply_basis_threshold(psi)
         basis_states.append(psi)
 
         if return_min_energy_history:

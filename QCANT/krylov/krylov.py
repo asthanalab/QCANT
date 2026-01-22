@@ -25,6 +25,7 @@ def exact_krylov(
     initial_state: Optional["object"] = None,
     overlap_tol: float = 1e-10,
     normalize_basis: bool = True,
+    basis_threshold: float = 0.0,
     krylov_method: str = "exact",
     use_sparse: bool = False,
     return_min_energy_history: bool = False,
@@ -68,6 +69,10 @@ def exact_krylov(
     normalize_basis
         If True, normalize each Krylov vector to avoid numerical overflow.
         This applies to ``krylov_method="exact"``.
+    basis_threshold
+        Drop amplitudes with absolute value below this threshold after each
+        basis update. The thresholded state is re-normalized. Use 0.0 to
+        disable thresholding.
     krylov_method
         Krylov construction method. Use ``"exact"`` for raw powers of ``H``,
         or ``"lanczos"`` to build an orthonormal Krylov basis.
@@ -180,6 +185,22 @@ def exact_krylov(
         raise ValueError("initial_state has zero norm")
     psi = psi / psi_norm
 
+    def _apply_basis_threshold(state):
+        if basis_threshold <= 0:
+            return state
+        state = np.asarray(state, dtype=complex)
+        mask = np.abs(state) >= basis_threshold
+        if not np.any(mask):
+            idx = int(np.argmax(np.abs(state)))
+            mask[idx] = True
+        state = np.where(mask, state, 0.0)
+        norm = np.linalg.norm(state)
+        if norm == 0:
+            raise ValueError("thresholded basis vector has zero norm")
+        return state / norm
+
+    psi = _apply_basis_threshold(psi)
+
     if use_sparse:
         try:
             import scipy.sparse  # noqa: F401
@@ -223,6 +244,7 @@ def exact_krylov(
                 if current_norm == 0:
                     raise ValueError("Krylov vector has zero norm")
                 current = current / current_norm
+            current = _apply_basis_threshold(current)
             basis_states.append(current)
 
         basis_states = np.stack(basis_states, axis=0)
@@ -260,6 +282,7 @@ def exact_krylov(
             raise ValueError("Lanczos breakdown before reaching n_steps")
         prev = v
         v = w / beta
+        v = _apply_basis_threshold(v)
         betas.append(beta)
 
     basis_states = np.stack(basis_states, axis=0)

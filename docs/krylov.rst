@@ -48,6 +48,8 @@ Options
 -------
 
 - ``krylov_method``: ``"exact"`` (power basis) or ``"lanczos"`` (orthonormal recurrence).
+- ``basis_threshold``: drop amplitudes below this threshold after each basis update and
+  re-normalize the state (use 0.0 to disable).
 - ``use_sparse``: use a sparse Hamiltonian representation for state updates.
 - ``return_min_energy_history``: return the minimum energy after each basis step.
 
