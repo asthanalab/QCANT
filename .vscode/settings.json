@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^python - <<'PY'\nimport mthree, inspect, os\npath = os\\.path\\.dirname\\(mthree\\.__file__\\)\nprint\\(path\\)\nPY$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

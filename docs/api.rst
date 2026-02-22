@@ -9,6 +9,7 @@ This section is generated from the docstrings in the QCANT package.
    QCANT.__version__
 
    QCANT.adapt_vqe
+   QCANT.gcim
 
    QCANT.qrte
 

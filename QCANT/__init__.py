@@ -11,18 +11,24 @@ Public API
 
 from .QCANT import canvas
 from .adapt import adapt_vqe
-from .qrte import qrte
+from .qrte import qrte, qrte_pmte
 from .krylov import exact_krylov
 from .qkud import qkud
+from .gcim import gcim
 from .qsceom import qscEOM
+from .qchem_units import geometry_for_pennylane, geometry_to_bohr
 from ._version import __version__
 
 __all__ = [
 	"adapt_vqe",
 	"qrte",
+	"qrte_pmte",
 	"exact_krylov",
 	"qkud",
+	"gcim",
 	"qscEOM",
 	"canvas",
+	"geometry_for_pennylane",
+	"geometry_to_bohr",
 	"__version__",
 ]

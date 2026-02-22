@@ -3,6 +3,6 @@
 The public entry point is :func:`QCANT.qrte`.
 """
 
-from .qrte import qrte
+from .qrte import qrte, qrte_pmte
 
-__all__ = ["qrte"]
+__all__ = ["qrte", "qrte_pmte"]

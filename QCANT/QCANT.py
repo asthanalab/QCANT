@@ -16,7 +16,7 @@ def canvas(with_attribution: bool = True) -> str:
 
     Parameters
     ----------
-    with_attribution
+    with_attribution : bool
         If ``True``, append a short attribution line.
 
     Returns
@@ -25,7 +25,7 @@ def canvas(with_attribution: bool = True) -> str:
         The quote, optionally with attribution.
     """
 
-    quote = "The code is but a canvas to our imagination."
+    quote: str = "The code is but a canvas to our imagination."
     if with_attribution:
         quote += "\n\t- Adapted from Henry David Thoreau"
     return quote
@@ -34,3 +34,4 @@ def canvas(with_attribution: bool = True) -> str:
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
     print(canvas())
+

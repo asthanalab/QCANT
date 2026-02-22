@@ -10,6 +10,44 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 
 
+def _validate_inputs(
+    symbols: Sequence[str],
+    geometry: "object",
+    n_steps: int,
+    epsilon: float,
+    overlap_tol: float,
+) -> int:
+    """Validate user-provided inputs for the QKUD algorithm.
+
+    Returns
+    -------
+    int
+        The number of atoms.
+
+    Raises
+    ------
+    ValueError
+        If any of the input parameters are invalid.
+    """
+    if len(symbols) == 0:
+        raise ValueError("symbols must be non-empty")
+    if n_steps < 0:
+        raise ValueError("n_steps must be >= 0")
+    if epsilon <= 0:
+        raise ValueError("epsilon must be > 0")
+    if overlap_tol <= 0:
+        raise ValueError("overlap_tol must be > 0")
+
+    try:
+        n_atoms = len(symbols)
+        if len(geometry) != n_atoms:
+            raise ValueError
+    except Exception as exc:
+        raise ValueError("geometry must have the same length as symbols") from exc
+
+    return n_atoms
+
+
 def qkud(
     symbols: Sequence[str],
     geometry,
@@ -78,6 +116,12 @@ def qkud(
     return_min_energy_history
         If True, also return the minimum energy after each QKUD step.
 
+    Notes
+    -----
+    This implementation enforces a real-valued Hamiltonian by dropping tiny
+    imaginary parts in the coefficients. This keeps simulator backends like
+    lightning.qubit stable when numerical noise introduces complex terms.
+
     Returns
     -------
     tuple
@@ -93,26 +137,18 @@ def qkud(
         ``min_energy_history`` has shape ``(n_steps,)`` and contains the
         minimum energy after each step (using the basis with ``k+1`` vectors).
     """
+    # pylint: disable=too-many-locals, too-many-statements, too-many-branches, too-many-arguments, unused-argument
 
-    if len(symbols) == 0:
-        raise ValueError("symbols must be non-empty")
-    if n_steps < 0:
-        raise ValueError("n_steps must be >= 0")
-    if epsilon <= 0:
-        raise ValueError("epsilon must be > 0")
-    if overlap_tol <= 0:
-        raise ValueError("overlap_tol must be > 0")
-
-    try:
-        n_atoms = len(symbols)
-        if len(geometry) != n_atoms:
-            raise ValueError
-    except Exception as exc:
-        raise ValueError("geometry must have the same length as symbols") from exc
+    # --------------------------------------------------------------------------
+    # 1. Input validation and dependency imports.
+    # --------------------------------------------------------------------------
+    n_atoms = _validate_inputs(symbols, geometry, n_steps, epsilon, overlap_tol)
 
     try:
         import numpy as np
         import pennylane as qml
+        import pyscf
+        from pyscf import gto, mcscf, scf
         from scipy.sparse.linalg import expm_multiply
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
@@ -121,6 +157,7 @@ def qkud(
         ) from exc
 
     def _basis_state_vector(bits: Sequence[int]) -> "object":
+        """Convert a bit string to a state vector."""
         idx = 0
         for bit in bits:
             idx = (idx << 1) | int(bit)
@@ -128,31 +165,53 @@ def qkud(
         state[idx] = 1.0
         return state
 
-    try:
-        H, n_qubits = qml.qchem.molecular_hamiltonian(
-            symbols,
-            geometry,
-            basis=basis,
-            method=method,
-            active_electrons=active_electrons,
-            active_orbitals=active_orbitals,
-            charge=charge,
-            spin=spin,
-        )
-    except TypeError:
-        # Older PennyLane versions do not accept a `spin` keyword.
-        H, n_qubits = qml.qchem.molecular_hamiltonian(
-            symbols,
-            geometry,
-            basis=basis,
-            method=method,
-            active_electrons=active_electrons,
-            active_orbitals=active_orbitals,
-            charge=charge,
-        )
+    # --------------------------------------------------------------------------
+    # 2. Molecule and Hamiltonian setup.
+    # --------------------------------------------------------------------------
+    atom = [(symbols[i], tuple(float(x) for x in geometry[i])) for i in range(n_atoms)]
+    mol = gto.Mole()
+    mol.atom = atom
+    mol.unit = "Angstrom"
+    mol.basis = basis
+    mol.charge = charge
+    mol.spin = spin
+    mol.symmetry = False
+    mol.build()
+
+    mf = scf.RHF(mol)
+    mf.level_shift = 0.5
+    mf.diis_space = 12
+    mf.max_cycle = 100
+    mf.kernel()
+    if not mf.converged:
+        mf = scf.newton(mf).run()
+
+    mycas = mcscf.CASCI(mf, active_orbitals, active_electrons)
+    h1ecas, ecore = mycas.get_h1eff(mf.mo_coeff)
+    h2ecas = mycas.get_h2eff(mf.mo_coeff)
+
+    two_mo = pyscf.ao2mo.restore("1", h2ecas, norb=mycas.ncas)
+    two_mo = np.swapaxes(two_mo, 1, 3)
+    one_mo = h1ecas
+    core_constant = np.array([ecore])
+
+    H_fermionic = qml.qchem.fermionic_observable(core_constant, one_mo, two_mo, cutoff=1e-20)
+    H = qml.jordan_wigner(H_fermionic)
+    n_qubits = 2 * mycas.ncas
+
+    if hasattr(H, "terms"):
+        coeffs, ops = H.terms()
+    else:
+        coeffs, ops = getattr(H, "coeffs", []), getattr(H, "ops", [])
+    coeffs = np.asarray(coeffs, dtype=complex)
+    if coeffs.size > 0 and (np.any(np.abs(coeffs.imag) > 1e-12) or coeffs.dtype.kind == "c"):
+        H = qml.Hamiltonian(coeffs.real.astype(float), ops)
 
     wires = range(n_qubits)
 
+    # --------------------------------------------------------------------------
+    # 3. Initial state preparation.
+    # --------------------------------------------------------------------------
     if initial_state is None:
         hf_occ = qml.qchem.hf_state(active_electrons, n_qubits)
         psi = _basis_state_vector(hf_occ)
@@ -187,6 +246,9 @@ def qkud(
 
     psi = _apply_basis_threshold(psi)
 
+    # --------------------------------------------------------------------------
+    # 4. QKUD basis construction.
+    # --------------------------------------------------------------------------
     if use_sparse:
         try:
             import scipy.sparse  # noqa: F401
@@ -200,11 +262,13 @@ def qkud(
         H_mat = qml.matrix(H, wire_order=wires)
 
     def _apply_qkud(state):
+        """Apply the QKUD recurrence relation."""
         forward = expm_multiply(-1j * epsilon * H_mat, state)
         backward = expm_multiply(1j * epsilon * H_mat, state)
         return (1j * (forward - backward)) / (2.0 * epsilon)
 
     def _project_min_energy(current_basis_states):
+        """Project and diagonalize the Hamiltonian, returning the minimum energy."""
         S = current_basis_states.conj() @ current_basis_states.T
         H_proj = current_basis_states.conj() @ (H_mat @ current_basis_states.T)
 
@@ -230,6 +294,9 @@ def qkud(
         current = _apply_basis_threshold(current)
         basis_states.append(current)
 
+    # --------------------------------------------------------------------------
+    # 5. Diagonalize the Hamiltonian in the Krylov basis.
+    # --------------------------------------------------------------------------
     basis_states = np.stack(basis_states, axis=0)
     energies, _e0 = _project_min_energy(basis_states)
 
