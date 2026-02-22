@@ -32,7 +32,9 @@ Algorithms
 	:maxdepth: 1
 
 	adapt_vqe
+	gcim
 	krylov
 	qkud
 	qrte
 	qsceom
+	parallelization
