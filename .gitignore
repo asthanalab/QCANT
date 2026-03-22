@@ -85,8 +85,10 @@ celerybeat-schedule
 
 # virtualenv
 .venv
+.venv*/
 venv/
 ENV/
+.conda_pkgs/
 
 # Spyder project settings
 .spyderproject

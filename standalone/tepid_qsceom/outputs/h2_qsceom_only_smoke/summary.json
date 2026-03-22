@@ -1,0 +1,14 @@
+{
+  "mode": "qsceom",
+  "ansatz_type": "fermionic",
+  "n_roots": 4,
+  "ground_state_energy_hartree": -0.8964458943999085,
+  "exact_reference": {
+    "n_compared": 3,
+    "ground_state_error_hartree": 4.551914400963142e-15,
+    "first_excited_error_hartree": -1.609823385706477e-15,
+    "first_excitation_error_hartree": -6.217248937900877e-15,
+    "second_excited_error_hartree": -3.3306690738754696e-15,
+    "second_excitation_error_hartree": -7.771561172376096e-15
+  }
+}

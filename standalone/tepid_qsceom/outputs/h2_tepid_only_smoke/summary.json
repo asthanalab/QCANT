@@ -1,0 +1,14 @@
+{
+  "mode": "tepid",
+  "final_free_energy_hartree": -0.9069470813154418,
+  "final_entropy": 0.16085134582172042,
+  "selected_operators": 1,
+  "exact_reference": {
+    "n_compared": 3,
+    "ground_state_error_hartree": 4.9960036108132044e-15,
+    "first_excited_error_hartree": 0.1641767177613181,
+    "first_excitation_error_hartree": 0.16417671776131315,
+    "second_excited_error_hartree": -0.16417671776132264,
+    "second_excitation_error_hartree": -0.16417671776132758
+  }
+}

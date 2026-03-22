@@ -40,6 +40,12 @@ For development (pip/venv):
 pip install -e .
 ```
 
+To enable the optional Qulacs simulator backend:
+
+```bash
+pip install -e ".[qulacs]"
+```
+
 For users (once QCANT is published to PyPI):
 
 ```bash
@@ -70,6 +76,34 @@ import QCANT
 
 print(QCANT.canvas())
 ```
+
+## Qulacs Backend
+
+QCANT also exposes optional Qulacs-backed exact-state routines for the
+simulator-heavy algorithms:
+
+- `QCANT.qkud_qulacs`
+- `QCANT.qrte_qulacs`
+- `QCANT.qrte_pmte_qulacs`
+- `QCANT.adapt_vqe_qulacs`
+- `QCANT.cvqe_qulacs`
+
+The Qulacs path is aimed at reducing simulator overhead rather than replacing
+the chemistry stack. PySCF and PennyLane are still used for Hamiltonian and
+active-space construction, while Qulacs handles the state evolution and
+expectation-value hot loops.
+
+The current speed-focused implementation does three main things:
+
+- compiles PennyLane chemistry gates once into reusable Qulacs parametric circuits
+- uses Qulacs backprop for native ADAPT-VQE gradients
+- reduces CVQE inner optimization by solving the selected-determinant
+  coefficients in the current reference space and optimizing only the ansatz
+  parameters
+
+For larger exact-state runs, prefer `evolution_mode="trotter"` in the Qulacs
+QRTE/QKUD routines. The `"sparse"` mode still materializes the Hamiltonian
+matrix and is not the scalable choice near the 16-20 qubit range.
 
 ## Documentation
 

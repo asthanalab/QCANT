@@ -14,10 +14,361 @@ from __future__ import annotations
 
 import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
+from functools import lru_cache
 import multiprocessing as mp
-from typing import Any, Optional, Sequence, Tuple
+from typing import Any, Mapping, Optional, Sequence, Tuple
 
 from .excitations import inite
+
+
+_FERMIONIC_ANSATZ_ALIASES = {"fermionic", "fermionic_sd", "sd"}
+_QUBIT_ANSATZ_ALIASES = {"qubit_excitation", "qe", "qubit"}
+
+
+def _normalize_ansatz_type(ansatz_type: Optional[str]) -> str:
+    """Normalize ansatz-type aliases into a canonical value."""
+    if ansatz_type is None:
+        return "fermionic"
+    normalized = str(ansatz_type).strip().lower()
+    if normalized in _FERMIONIC_ANSATZ_ALIASES:
+        return "fermionic"
+    if normalized in _QUBIT_ANSATZ_ALIASES:
+        return "qubit_excitation"
+    raise ValueError(
+        "ansatz_type must be one of {'fermionic', 'fermionic_sd', 'sd', "
+        "'qubit_excitation', 'qe', 'qubit'}"
+    )
+
+
+def _normalize_projector_backend(projector_backend: Optional[str]) -> str:
+    """Normalize analytic projector backend selection."""
+    normalized = str(projector_backend or "auto").strip().lower()
+    if normalized in {"auto", "dense", "sparse_number_preserving"}:
+        return normalized
+    raise ValueError(
+        "projector_backend must be one of {'auto', 'dense', 'sparse_number_preserving'}"
+    )
+
+
+def _apply_excitation_gate(qml, excitation, weight, ansatz_type: str) -> None:
+    """Apply one ansatz excitation gate in the selected operator family."""
+    if ansatz_type == "fermionic":
+        if len(excitation) == 4:
+            qml.FermionicDoubleExcitation(
+                weight=weight,
+                wires1=list(range(excitation[0], excitation[1] + 1)),
+                wires2=list(range(excitation[2], excitation[3] + 1)),
+            )
+            return
+        if len(excitation) == 2:
+            qml.FermionicSingleExcitation(
+                weight=weight,
+                wires=list(range(excitation[0], excitation[1] + 1)),
+            )
+            return
+    elif ansatz_type == "qubit_excitation":
+        if len(excitation) == 4:
+            qml.DoubleExcitation(
+                weight,
+                wires=[int(excitation[0]), int(excitation[1]), int(excitation[2]), int(excitation[3])],
+            )
+            return
+        if len(excitation) == 2:
+            qml.SingleExcitation(
+                weight,
+                wires=[int(excitation[0]), int(excitation[1])],
+            )
+            return
+
+    raise ValueError(
+        "Each excitation must have length 2 (single) or 4 (double); "
+        f"received {excitation!r} for ansatz_type='{ansatz_type}'."
+    )
+
+
+def _build_pyscf_molecular_integrals(
+    *,
+    symbols: Sequence[str],
+    geometry,
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+):
+    """Build molecular integrals matching PennyLane's ``method='pyscf'`` path."""
+    import numpy as np
+
+    symbols_key = tuple(str(symbol) for symbol in symbols)
+    geometry_key = tuple(float(value) for value in np.asarray(geometry, dtype=float).reshape(-1))
+    core_constant, one_mo, two_mo = _build_pyscf_molecular_integrals_cached(
+        symbols_key=symbols_key,
+        geometry_key=geometry_key,
+        basis=str(basis),
+        charge=int(charge),
+        active_electrons=int(active_electrons),
+        active_orbitals=int(active_orbitals),
+    )
+    return (
+        np.array(core_constant, dtype=float, copy=True),
+        np.array(one_mo, dtype=float, copy=True),
+        np.array(two_mo, dtype=float, copy=True),
+    )
+
+
+@lru_cache(maxsize=32)
+def _build_pyscf_molecular_integrals_cached(
+    *,
+    symbols_key: tuple[str, ...],
+    geometry_key: tuple[float, ...],
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+):
+    """Cached PySCF integral builder for repeated qscEOM runs on the same molecule."""
+    import numpy as np
+    from pennylane.qchem import openfermion_pyscf as qchem_ofp
+
+    coordinates = np.asarray(geometry_key, dtype=float)
+    core_constant, one_mo, two_mo = qchem_ofp._pyscf_integrals(
+        list(symbols_key),
+        coordinates,
+        charge=charge,
+        mult=1,
+        basis=basis,
+        active_electrons=active_electrons,
+        active_orbitals=active_orbitals,
+    )
+    return (
+        np.asarray(core_constant, dtype=float),
+        np.asarray(one_mo, dtype=float),
+        np.asarray(two_mo, dtype=float),
+    )
+
+
+def _expand_spatial_integrals_to_spin_orbital(one_mo, two_mo):
+    """Expand spatial-orbital integrals into the spin-orbital convention used by qchem."""
+    import numpy as np
+
+    one_mo = np.asarray(one_mo, dtype=float)
+    two_mo = np.asarray(two_mo, dtype=float)
+
+    n_orbitals = int(one_mo.shape[0])
+    n_spin_orbitals = 2 * n_orbitals
+
+    one_spin = np.zeros((n_spin_orbitals, n_spin_orbitals), dtype=float)
+    for p in range(n_orbitals):
+        for q in range(n_orbitals):
+            one_spin[2 * p, 2 * q] = float(one_mo[p, q])
+            one_spin[2 * p + 1, 2 * q + 1] = float(one_mo[p, q])
+
+    # Match PennyLane's fermionic_observable spin expansion exactly.
+    two_spin = np.zeros((n_spin_orbitals,) * 4, dtype=float)
+    for p in range(n_orbitals):
+        for q in range(n_orbitals):
+            for r in range(n_orbitals):
+                for s in range(n_orbitals):
+                    coeff = float(two_mo[p, q, r, s]) / 2.0
+                    if coeff == 0.0:
+                        continue
+                    two_spin[2 * p, 2 * q, 2 * r, 2 * s] = coeff
+                    two_spin[2 * p, 2 * q + 1, 2 * r + 1, 2 * s] = coeff
+                    two_spin[2 * p + 1, 2 * q, 2 * r, 2 * s + 1] = coeff
+                    two_spin[2 * p + 1, 2 * q + 1, 2 * r + 1, 2 * s + 1] = coeff
+
+    return one_spin, two_spin
+
+
+def _build_exact_fermion_operator(
+    *,
+    symbols: Sequence[str],
+    geometry,
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+):
+    """Build the exact molecular Hamiltonian as an OpenFermion FermionOperator."""
+    import numpy as np
+    try:
+        from openfermion import InteractionOperator, get_fermion_operator
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "The sparse qscEOM projector requires the optional dependency `openfermion`."
+        ) from exc
+
+    core_constant, one_mo, two_mo = _build_pyscf_molecular_integrals(
+        symbols=symbols,
+        geometry=geometry,
+        basis=basis,
+        charge=charge,
+        active_electrons=active_electrons,
+        active_orbitals=active_orbitals,
+    )
+    one_spin, two_spin = _expand_spatial_integrals_to_spin_orbital(one_mo, two_mo)
+    interaction = InteractionOperator(
+        float(np.asarray(core_constant, dtype=float).reshape(-1)[0]),
+        one_spin,
+        two_spin,
+    )
+    return get_fermion_operator(interaction)
+
+
+def _build_brg_fermion_operator(
+    *,
+    symbols: Sequence[str],
+    geometry,
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+    brg_tolerance: float,
+):
+    """Build a BRG-truncated molecular Hamiltonian as an OpenFermion FermionOperator."""
+    import numpy as np
+    try:
+        from openfermion import (
+            FermionOperator,
+            low_rank_two_body_decomposition,
+            normal_ordered,
+        )
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("brg_tolerance requires the optional dependency `openfermion`.") from exc
+
+    core_constant, one_mo, two_mo = _build_pyscf_molecular_integrals(
+        symbols=symbols,
+        geometry=geometry,
+        basis=basis,
+        charge=charge,
+        active_electrons=active_electrons,
+        active_orbitals=active_orbitals,
+    )
+    one_spin, two_spin = _expand_spatial_integrals_to_spin_orbital(one_mo, two_mo)
+    eigenvalues, one_body_squares, one_body_correction, truncation_value = low_rank_two_body_decomposition(
+        two_spin,
+        truncation_threshold=float(brg_tolerance),
+        spin_basis=True,
+    )
+
+    n_spin_orbitals = int(one_spin.shape[0])
+    fermion_op = FermionOperator("", float(np.asarray(core_constant, dtype=float).reshape(-1)[0]))
+
+    corrected_one_body = np.asarray(one_spin + one_body_correction, dtype=complex)
+    for p in range(n_spin_orbitals):
+        for q in range(n_spin_orbitals):
+            coeff = complex(corrected_one_body[p, q])
+            if abs(coeff) <= 1e-15:
+                continue
+            fermion_op += FermionOperator(((p, 1), (q, 0)), coeff)
+
+    for lam, g_mat in zip(np.asarray(eigenvalues, dtype=float), np.asarray(one_body_squares, dtype=complex)):
+        generator = FermionOperator()
+        for p in range(n_spin_orbitals):
+            for q in range(n_spin_orbitals):
+                coeff = complex(g_mat[p, q])
+                if abs(coeff) <= 1e-15:
+                    continue
+                generator += FermionOperator(((p, 1), (q, 0)), coeff)
+        fermion_op += float(lam) * normal_ordered(generator * generator)
+
+    details = {
+        "brg_applied": True,
+        "brg_tolerance": float(brg_tolerance),
+        "brg_rank": int(len(eigenvalues)),
+        "brg_truncation_value": float(truncation_value),
+    }
+    return fermion_op, details
+
+
+def _build_brg_hamiltonian_dense(
+    *,
+    symbols: Sequence[str],
+    geometry,
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+    brg_tolerance: float,
+):
+    """Build a BRG-truncated dense molecular Hamiltonian matrix."""
+    import numpy as np
+    try:
+        from openfermion import get_sparse_operator
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError("brg_tolerance requires the optional dependency `openfermion`.") from exc
+
+    fermion_op, details = _build_brg_fermion_operator(
+        symbols=symbols,
+        geometry=geometry,
+        basis=basis,
+        charge=charge,
+        active_electrons=active_electrons,
+        active_orbitals=active_orbitals,
+        brg_tolerance=brg_tolerance,
+    )
+    n_spin_orbitals = int(2 * int(active_orbitals))
+    dense = np.asarray(get_sparse_operator(fermion_op, n_qubits=n_spin_orbitals).toarray(), dtype=complex)
+    return dense, details
+
+
+def _build_number_preserving_sparse_hamiltonian(
+    *,
+    fermion_operator,
+    qubits: int,
+    active_electrons: int,
+):
+    """Build a number-preserving sparse Hamiltonian for the fixed-electron sector."""
+    try:
+        from openfermion import get_number_preserving_sparse_operator
+    except ImportError as exc:  # pragma: no cover
+        raise ImportError(
+            "The sparse qscEOM projector requires the optional dependency `openfermion`."
+        ) from exc
+
+    sparse_operator = get_number_preserving_sparse_operator(
+        fermion_operator,
+        num_qubits=int(qubits),
+        num_electrons=int(active_electrons),
+        spin_preserving=False,
+    ).tocsr()
+    details = {
+        "sector_dimension": int(sparse_operator.shape[0]),
+        "hamiltonian_nnz": int(sparse_operator.nnz),
+    }
+    return sparse_operator, details
+
+
+def _jw_number_sector_indices(n_electrons: int, n_qubits: int):
+    """Return sector basis indices in the ordering used by OpenFermion's sparse converter."""
+    from itertools import combinations
+
+    n_electrons = int(n_electrons)
+    n_qubits = int(n_qubits)
+    reference_occ = tuple(range(n_electrons))
+    virtual_occ = tuple(range(n_electrons, n_qubits))
+    indices = []
+
+    for excitation_rank in range(n_electrons + 1):
+        for removed in combinations(reference_occ, excitation_rank):
+            removed_set = set(removed)
+            kept = [orb for orb in reference_occ if orb not in removed_set]
+            for added in combinations(virtual_occ, excitation_rank):
+                occupation = sorted(kept + list(added))
+                index = 0
+                for orb in occupation:
+                    index |= 1 << (n_qubits - 1 - int(orb))
+                indices.append(int(index))
+
+    return indices
+
+
+def _restrict_basis_states_to_number_sector(basis_states, *, active_electrons: int, qubits: int):
+    """Restrict full-space statevectors to the fixed-electron sparse-operator sector."""
+    import numpy as np
+
+    select_indices = np.asarray(_jw_number_sector_indices(int(active_electrons), int(qubits)), dtype=int)
+    restricted = np.asarray(basis_states[select_indices, :], dtype=complex)
+    return restricted, select_indices
 
 
 def _resolve_worker_count(max_workers: Optional[int]) -> int:
@@ -65,8 +416,17 @@ def _qsceom_worker_init(payload):
     import numpy as np
     import pennylane as qml
 
-    def _make_device(name: Optional[str], wires: int, shots: int):
-        kwargs = {}
+    device_kwargs = dict(payload.get("device_kwargs") or {})
+
+    def _make_device(
+        name: Optional[str],
+        wires: int,
+        shots: int,
+        extra_kwargs: Optional[dict[str, Any]] = None,
+    ):
+        kwargs = dict(extra_kwargs or {})
+        kwargs.pop("wires", None)
+        kwargs.pop("shots", None)
         if shots > 0:
             kwargs["shots"] = shots
         if name is not None:
@@ -83,23 +443,14 @@ def _qsceom_worker_init(payload):
     ash_excitation = payload["ash_excitation"]
     list1 = payload["list1"]
     null_state = payload["null_state"]
+    ansatz_type = str(payload["ansatz_type"])
     device_name = payload["device_name"]
 
-    dev = _make_device(device_name, qubits, shots)
+    dev = _make_device(device_name, qubits, shots, device_kwargs)
 
     def _apply_ansatz_local(params_local, ash_local):
         for i, excitations in enumerate(ash_local):
-            if len(excitations) == 4:
-                qml.FermionicDoubleExcitation(
-                    weight=params_local[i],
-                    wires1=list(range(excitations[0], excitations[1] + 1)),
-                    wires2=list(range(excitations[2], excitations[3] + 1)),
-                )
-            elif len(excitations) == 2:
-                qml.FermionicSingleExcitation(
-                    weight=params_local[i],
-                    wires=list(range(excitations[0], excitations[1] + 1)),
-                )
+            _apply_excitation_gate(qml, excitations, params_local[i], ansatz_type)
 
     @qml.qnode(dev)
     def _diag_by_index(idx):
@@ -167,6 +518,70 @@ def _qsceom_worker_offdiagonal(chunk_pairs):
     return out
 
 
+def _qsceom_state_worker_init(payload):
+    """Initialize worker-local qnode for analytic statevector generation."""
+    import numpy as np
+    import pennylane as qml
+
+    device_kwargs = dict(payload.get("device_kwargs") or {})
+
+    def _make_device(
+        name: Optional[str],
+        wires: int,
+        extra_kwargs: Optional[dict[str, Any]] = None,
+    ):
+        kwargs = dict(extra_kwargs or {})
+        kwargs.pop("wires", None)
+        kwargs.pop("shots", None)
+        if name is not None:
+            return qml.device(name, wires=wires, **kwargs)
+        try:
+            return qml.device("lightning.qubit", wires=wires, **kwargs)
+        except Exception:
+            return qml.device("default.qubit", wires=wires, **kwargs)
+
+    qubits = int(payload["qubits"])
+    params = payload["params"]
+    ash_excitation = payload["ash_excitation"]
+    list1 = payload["list1"]
+    null_state = payload["null_state"]
+    ansatz_type = str(payload["ansatz_type"])
+    device_name = payload["device_name"]
+
+    dev = _make_device(device_name, qubits, device_kwargs)
+
+    def _apply_ansatz_local(params_local, ash_local):
+        for i, excitations in enumerate(ash_local):
+            _apply_excitation_gate(qml, excitations, params_local[i], ansatz_type)
+
+    @qml.qnode(dev)
+    def _state_by_index(idx):
+        occ = list1[int(idx)]
+        qml.BasisState(null_state, wires=range(qubits))
+        for w in occ:
+            qml.X(wires=w)
+        _apply_ansatz_local(params, ash_excitation)
+        return qml.state()
+
+    _QSCEOM_WORKER_STATE.clear()
+    _QSCEOM_WORKER_STATE.update(
+        {
+            "np": np,
+            "state_fn": _state_by_index,
+        }
+    )
+
+
+def _qsceom_state_worker_chunk(chunk_indices):
+    """Generate analytic ansatz statevectors for a chunk of basis indices."""
+    np = _QSCEOM_WORKER_STATE["np"]
+    state_fn = _QSCEOM_WORKER_STATE["state_fn"]
+    out = {}
+    for idx in chunk_indices:
+        out[idx] = np.asarray(state_fn(idx), dtype=complex)
+    return out
+
+
 def qscEOM(
     symbols: Sequence[str],
     geometry,
@@ -177,10 +592,12 @@ def qscEOM(
     ash_excitation=None,
     *,
     ansatz: Optional[Tuple[Any, Any, Any]] = None,
+    ansatz_type: Optional[str] = None,
     basis: str = "sto-3g",
     method: str = "pyscf",
     shots: int = 0,
     device_name: Optional[str] = None,
+    include_identity: bool = True,
     max_states: Optional[int] = None,
     state_seed: Optional[int] = None,
     symmetric: bool = True,
@@ -188,6 +605,12 @@ def qscEOM(
     parallel_backend: str = "auto",
     max_workers: Optional[int] = None,
     matrix_chunk_size: Optional[int] = None,
+    pauli_grouping: bool = False,
+    grouping_type: str = "qwc",
+    device_kwargs: Optional[Mapping[str, Any]] = None,
+    brg_tolerance: Optional[float] = None,
+    projector_backend: str = "auto",
+    return_details: bool = False,
 ):
     """Compute qscEOM eigenvalues from an ansatz state.
 
@@ -207,15 +630,23 @@ def qscEOM(
         Ansatz parameters.
     ash_excitation
         Excitation list describing the ansatz.
+    ansatz_type
+        Ansatz gate family used to replay ``ash_excitation``:
+        ``"fermionic"`` (default) or ``"qubit_excitation"`` (alias ``"qe"``).
+        This controls only ansatz replay, not the qscEOM basis construction.
     shots
         If 0, run in analytic mode; otherwise use shot-based estimation.
     device_name
         Optional PennyLane device name (e.g. ``"lightning.qubit"``).
+    include_identity
+        If True (default), include the HF/reference state ``I`` in the qscEOM
+        projected basis in addition to standard singles+doubles configurations.
     max_states
-        If provided, limit the number of occupation configurations used to
-        build the effective matrix.
+        Deprecated compatibility argument. qscEOM now always uses the full
+        selected basis and rejects any non-``None`` value.
     state_seed
-        Seed for selecting a random subset when ``max_states`` is used.
+        Deprecated compatibility argument kept only to avoid breaking older
+        call sites. Ignored when ``max_states=None``.
     symmetric
         If True, compute only the upper-triangular off-diagonal elements and
         mirror them to reduce circuit evaluations.
@@ -231,13 +662,41 @@ def qscEOM(
     matrix_chunk_size
         Number of matrix entries per submitted worker task. If omitted, a
         balanced chunk size based on ``max_workers`` is used.
+    pauli_grouping
+        If True, pre-compute Pauli grouping metadata (e.g. QWC) for the
+        Hamiltonian before shot-based measurements.
+    grouping_type
+        Grouping strategy passed to ``compute_grouping`` when
+        ``pauli_grouping=True``.
+    device_kwargs
+        Optional keyword arguments forwarded to ``qml.device``. This is useful
+        when selecting hardware/noise-model specific backends that require
+        extra constructor parameters.
+    brg_tolerance
+        If provided, apply basis-rotation grouping (BRG) to the molecular
+        Hamiltonian before the analytic projected-matrix construction. This is
+        supported only when ``shots=0`` and ``method='pyscf'``.
+    projector_backend
+        Analytic projected-matrix backend. ``"dense"`` preserves the historical
+        dense-Hamiltonian path. ``"sparse_number_preserving"`` restricts the
+        molecular Hamiltonian to the fixed-electron Jordan-Wigner sector using
+        OpenFermion sparse operators. ``"auto"`` selects the sparse backend for
+        analytic ``method='pyscf'`` runs when OpenFermion is available.
+    return_details
+        If True, also return a details dictionary containing projected-matrix
+        eigenvectors and basis metadata. Default False preserves historical
+        return type.
 
     Returns
     -------
     list
         Sorted eigenvalues for the constructed effective matrix.
+    tuple
+        When ``return_details=True``, returns ``(values, details)`` where
+        ``details`` contains eigenvectors and matrix metadata.
     """
 
+    inferred_ansatz_type = None
     if ansatz is not None:
         try:
             params_from_adapt, ash_excitation_from_adapt, _energies = ansatz
@@ -249,19 +708,46 @@ def qscEOM(
 
         params = params_from_adapt
         ash_excitation = ash_excitation_from_adapt
+        inferred_ansatz_type = getattr(ash_excitation_from_adapt, "ansatz_type", None)
+        if inferred_ansatz_type is None:
+            inferred_ansatz_type = getattr(_energies, "ansatz_type", None)
+
+    if ansatz_type is None:
+        ansatz_type = inferred_ansatz_type
+    ansatz_type = _normalize_ansatz_type(ansatz_type)
+    projector_backend = _normalize_projector_backend(projector_backend)
+    method_normalized = str(method).strip().lower()
 
     if params is None or ash_excitation is None:
         raise TypeError(
             "qscEOM requires either (params, ash_excitation) or ansatz=(params, ash_excitation, energies)."
         )
-    if max_states is not None and max_states <= 0:
-        raise ValueError("max_states must be > 0")
+    if max_states is not None:
+        raise ValueError(
+            "max_states-based truncation has been removed; qscEOM now always uses the full basis. "
+            "Pass max_states=None."
+        )
     if max_workers is not None and max_workers <= 0:
         raise ValueError("max_workers must be > 0")
     if matrix_chunk_size is not None and matrix_chunk_size <= 0:
         raise ValueError("matrix_chunk_size must be > 0")
+    if brg_tolerance is not None and brg_tolerance <= 0:
+        raise ValueError("brg_tolerance must be > 0")
     if parallel_backend not in {"auto", "thread", "process"}:
         raise ValueError("parallel_backend must be one of {'auto', 'thread', 'process'}")
+    if pauli_grouping and grouping_type not in {"qwc", "commuting", "anticommuting"}:
+        raise ValueError(
+            "grouping_type must be one of {'qwc', 'commuting', 'anticommuting'} "
+            "when pauli_grouping=True"
+        )
+    if brg_tolerance is not None and shots != 0:
+        raise ValueError("brg_tolerance requires shots=0")
+    if brg_tolerance is not None and method_normalized != "pyscf":
+        raise ValueError("brg_tolerance requires method='pyscf'")
+    if projector_backend == "sparse_number_preserving" and shots != 0:
+        raise ValueError("projector_backend='sparse_number_preserving' requires shots=0")
+    if projector_backend == "sparse_number_preserving" and method_normalized != "pyscf":
+        raise ValueError("projector_backend='sparse_number_preserving' requires method='pyscf'")
 
     try:
         if len(params) != len(ash_excitation):
@@ -278,15 +764,32 @@ def qscEOM(
             "`pip install numpy pennylane`."
         ) from exc
 
-    H, qubits = qml.qchem.molecular_hamiltonian(
-        symbols,
-        geometry,
-        basis=basis,
-        method=method,
-        active_electrons=active_electrons,
-        active_orbitals=active_orbitals,
-        charge=charge,
-    )
+    resolved_projector_backend = projector_backend
+    if projector_backend == "auto":
+        if shots == 0 and method_normalized == "pyscf":
+            try:
+                import openfermion  # noqa: F401
+            except ImportError:
+                resolved_projector_backend = "dense"
+            else:
+                resolved_projector_backend = "sparse_number_preserving"
+        else:
+            resolved_projector_backend = "dense"
+
+    H = None
+    qubits = 2 * int(active_orbitals)
+    if shots != 0 or resolved_projector_backend == "dense":
+        H, qubits = qml.qchem.molecular_hamiltonian(
+            symbols,
+            geometry,
+            basis=basis,
+            method=method,
+            active_electrons=active_electrons,
+            active_orbitals=active_orbitals,
+            charge=charge,
+        )
+        if pauli_grouping and hasattr(H, "compute_grouping"):
+            H.compute_grouping(grouping_type=grouping_type)
 
     hf_state = qml.qchem.hf_state(active_electrons, qubits)
     singles, doubles = qml.qchem.excitations(active_electrons, qubits)
@@ -294,15 +797,34 @@ def qscEOM(
     wires = range(qubits)
 
     null_state = np.zeros(qubits, int)
-    list1 = inite(active_electrons, qubits)
-    if max_states is not None and max_states < len(list1):
-        rng = np.random.default_rng(state_seed)
-        indices = rng.choice(len(list1), size=max_states, replace=False)
-        list1 = [list1[idx] for idx in sorted(indices)]
+    list1 = [list(int(v) for v in occ) for occ in inite(active_electrons, qubits)]
+    ref_occ = [int(i) for i, bit in enumerate(np.asarray(hf_state, dtype=int)) if int(bit) == 1]
+    if include_identity:
+        basis_occ = [ref_occ] + [occ for occ in list1 if occ != ref_occ]
+    else:
+        basis_occ = [occ for occ in list1 if occ != ref_occ]
+
+    # De-duplicate while preserving order.
+    seen_occ = set()
+    list1 = []
+    for occ in basis_occ:
+        key = tuple(int(v) for v in occ)
+        if key in seen_occ:
+            continue
+        seen_occ.add(key)
+        list1.append(list(key))
+
+    if len(list1) == 0:
+        raise ValueError("qscEOM basis is empty after include_identity filtering.")
+
     values = []
 
+    device_kwargs_local = dict(device_kwargs or {})
+
     def _make_device(name: Optional[str], wires: int):
-        kwargs = {}
+        kwargs = dict(device_kwargs_local)
+        kwargs.pop("wires", None)
+        kwargs.pop("shots", None)
         if shots > 0:
             kwargs["shots"] = shots
         if name is not None:
@@ -317,6 +839,18 @@ def qscEOM(
         arr = np.asarray(value)
         return float(np.real(arr).item())
 
+    def _build_circuit_state(dev):
+        @qml.qnode(dev)
+        def circuit_state_local(params_local, occ, hf_state_local, ash_local):
+            qml.BasisState(hf_state_local, wires=range(qubits))
+            for w in occ:
+                qml.X(wires=w)
+            for i, excitations in enumerate(ash_local):
+                _apply_excitation_gate(qml, excitations, params_local[i], ansatz_type)
+            return qml.state()
+
+        return circuit_state_local
+
     def _build_circuit_d(dev):
         @qml.qnode(dev)
         def circuit_d_local(params_local, occ, wires, s_wires, d_wires, hf_state_local, ash_local):
@@ -324,17 +858,7 @@ def qscEOM(
             for w in occ:
                 qml.X(wires=w)
             for i, excitations in enumerate(ash_local):
-                if len(excitations) == 4:
-                    qml.FermionicDoubleExcitation(
-                        weight=params_local[i],
-                        wires1=list(range(excitations[0], excitations[1] + 1)),
-                        wires2=list(range(excitations[2], excitations[3] + 1)),
-                    )
-                elif len(excitations) == 2:
-                    qml.FermionicSingleExcitation(
-                        weight=params_local[i],
-                        wires=list(range(excitations[0], excitations[1] + 1)),
-                    )
+                _apply_excitation_gate(qml, excitations, params_local[i], ansatz_type)
             return qml.expval(H)
 
         return circuit_d_local
@@ -361,25 +885,168 @@ def qscEOM(
                     else:
                         qml.CNOT(wires=[first, v])
             for i, excitations in enumerate(ash_local):
-                if len(excitations) == 4:
-                    qml.FermionicDoubleExcitation(
-                        weight=params_local[i],
-                        wires1=list(range(excitations[0], excitations[1] + 1)),
-                        wires2=list(range(excitations[2], excitations[3] + 1)),
-                    )
-                elif len(excitations) == 2:
-                    qml.FermionicSingleExcitation(
-                        weight=params_local[i],
-                        wires=list(range(excitations[0], excitations[1] + 1)),
-                    )
+                _apply_excitation_gate(qml, excitations, params_local[i], ansatz_type)
             return qml.expval(H)
 
         return circuit_od_local
 
     n_states = len(list1)
-    M = np.zeros((n_states, n_states), dtype=float)
     worker_count = _resolve_worker_count(max_workers)
     backend = _resolve_parallel_backend(parallel_backend)
+    brg_details = {
+        "brg_applied": False,
+        "brg_tolerance": None,
+        "brg_rank": None,
+        "brg_truncation_value": None,
+        "projector_backend": resolved_projector_backend if shots == 0 else "shot_based",
+        "sector_dimension": None,
+        "hamiltonian_nnz": None,
+    }
+
+    # Analytic-mode path: build the exact complex projected matrix M_ij = <psi_i|H|psi_j>.
+    # This preserves Rayleigh-Ritz variational behavior (with include_identity=True, the
+    # ADAPT state is included in the subspace).
+    if shots == 0:
+        state_map = {}
+
+        def _state_chunk(chunk_indices):
+            local_dev = _make_device(device_name, qubits)
+            circuit_state_local = _build_circuit_state(local_dev)
+            out = {}
+            for idx in chunk_indices:
+                out[idx] = np.asarray(
+                    circuit_state_local(
+                        params,
+                        list1[idx],
+                        null_state,
+                        ash_excitation,
+                    ),
+                    dtype=complex,
+                )
+            return out
+
+        if parallel_matrix and worker_count > 1 and n_states > 1:
+            chunk_size = _resolve_chunk_size(
+                total_items=n_states,
+                worker_count=worker_count,
+                user_chunk_size=matrix_chunk_size,
+            )
+            chunked_indices = list(_iter_chunks(list(range(n_states)), chunk_size))
+            state_executor = None
+            try:
+                if backend == "process":
+                    payload = {
+                        "qubits": int(qubits),
+                        "params": np.asarray(params),
+                        "ash_excitation": tuple(tuple(int(v) for v in exc) for exc in ash_excitation),
+                        "list1": tuple(tuple(int(v) for v in occ) for occ in list1),
+                        "null_state": np.asarray(null_state),
+                        "ansatz_type": ansatz_type,
+                        "device_name": device_name,
+                        "device_kwargs": device_kwargs_local,
+                    }
+                    try:
+                        mp_context = mp.get_context("fork")
+                    except ValueError:
+                        mp_context = mp.get_context()
+                    try:
+                        state_executor = ProcessPoolExecutor(
+                            max_workers=worker_count,
+                            mp_context=mp_context,
+                            initializer=_qsceom_state_worker_init,
+                            initargs=(payload,),
+                        )
+                    except (PermissionError, OSError, NotImplementedError):
+                        state_executor = None
+                elif backend == "thread":
+                    state_executor = ThreadPoolExecutor(max_workers=worker_count)
+
+                if state_executor is not None:
+                    if backend == "process":
+                        futures = [
+                            state_executor.submit(_qsceom_state_worker_chunk, chunk)
+                            for chunk in chunked_indices
+                        ]
+                    else:
+                        futures = [state_executor.submit(_state_chunk, chunk) for chunk in chunked_indices]
+                    for future in as_completed(futures):
+                        state_map.update(future.result())
+                else:
+                    state_map.update(_state_chunk(list(range(n_states))))
+            finally:
+                if state_executor is not None:
+                    state_executor.shutdown(wait=True)
+        else:
+            state_map.update(_state_chunk(list(range(n_states))))
+
+        basis_states = np.column_stack([state_map[i] for i in range(n_states)])
+        if resolved_projector_backend == "sparse_number_preserving":
+            if brg_tolerance is not None:
+                fermion_operator, sparse_brg_details = _build_brg_fermion_operator(
+                    symbols=symbols,
+                    geometry=geometry,
+                    basis=basis,
+                    charge=charge,
+                    active_electrons=active_electrons,
+                    active_orbitals=active_orbitals,
+                    brg_tolerance=float(brg_tolerance),
+                )
+                brg_details.update(sparse_brg_details)
+            else:
+                fermion_operator = _build_exact_fermion_operator(
+                    symbols=symbols,
+                    geometry=geometry,
+                    basis=basis,
+                    charge=charge,
+                    active_electrons=active_electrons,
+                    active_orbitals=active_orbitals,
+                )
+
+            sparse_hamiltonian, sparse_details = _build_number_preserving_sparse_hamiltonian(
+                fermion_operator=fermion_operator,
+                qubits=qubits,
+                active_electrons=active_electrons,
+            )
+            restricted_basis_states, _sector_indices = _restrict_basis_states_to_number_sector(
+                basis_states,
+                active_electrons=active_electrons,
+                qubits=qubits,
+            )
+            brg_details.update(sparse_details)
+            M_exact = restricted_basis_states.conj().T @ (sparse_hamiltonian @ restricted_basis_states)
+        else:
+            if brg_tolerance is not None:
+                H_dense, dense_brg_details = _build_brg_hamiltonian_dense(
+                    symbols=symbols,
+                    geometry=geometry,
+                    basis=basis,
+                    charge=charge,
+                    active_electrons=active_electrons,
+                    active_orbitals=active_orbitals,
+                    brg_tolerance=float(brg_tolerance),
+                )
+                brg_details.update(dense_brg_details)
+            else:
+                H_dense = np.asarray(qml.matrix(H, wire_order=range(qubits)), dtype=complex)
+            M_exact = basis_states.conj().T @ (H_dense @ basis_states)
+        M_exact = 0.5 * (M_exact + M_exact.conj().T)
+        eigvals, eigvecs = np.linalg.eigh(M_exact)
+        order = np.argsort(np.real(eigvals))
+        eigvals_sorted = np.asarray(eigvals[order], dtype=float)
+        eigvecs_sorted = np.asarray(eigvecs[:, order], dtype=complex)
+        values.append(eigvals_sorted)
+        if not return_details:
+            return values
+        details = {
+            "projected_matrix": np.asarray(M_exact, dtype=complex),
+            "basis_states": np.asarray(basis_states, dtype=complex),
+            "eigenvectors": eigvecs_sorted,
+            "basis_occupations": [list(int(v) for v in occ) for occ in list1],
+        }
+        details.update(brg_details)
+        return values, details
+
+    M = np.zeros((n_states, n_states), dtype=float)
     executor = None
     if parallel_matrix and worker_count > 1:
         if backend == "process":
@@ -391,7 +1058,9 @@ def qscEOM(
                 "ash_excitation": tuple(tuple(int(v) for v in exc) for exc in ash_excitation),
                 "list1": tuple(tuple(int(v) for v in occ) for occ in list1),
                 "null_state": np.asarray(null_state),
+                "ansatz_type": ansatz_type,
                 "device_name": device_name,
+                "device_kwargs": device_kwargs_local,
             }
             try:
                 mp_context = mp.get_context("fork")
@@ -540,7 +1209,17 @@ def qscEOM(
         if executor is not None:
             executor.shutdown(wait=True)
 
-    eig, _ = np.linalg.eig(M)
-    values.append(np.sort(eig))
-
-    return values
+    eigvals, eigvecs = np.linalg.eig(M)
+    order = np.argsort(np.real(eigvals))
+    eigvals_sorted = np.asarray(eigvals[order])
+    eigvecs_sorted = np.asarray(eigvecs[:, order], dtype=complex)
+    values.append(eigvals_sorted)
+    if not return_details:
+        return values
+    details = {
+        "projected_matrix": np.asarray(M, dtype=complex),
+        "eigenvectors": eigvecs_sorted,
+        "basis_occupations": [list(int(v) for v in occ) for occ in list1],
+    }
+    details.update(brg_details)
+    return values, details

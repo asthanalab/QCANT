@@ -41,6 +41,16 @@ def test_adapt_vqe_rejects_invalid_parallel_knobs():
             parallel_backend="bad_backend",
         )
 
+    with pytest.raises(ValueError, match=r"pool_type must be one of"):
+        QCANT.adapt_vqe(
+            symbols=symbols,
+            geometry=geometry,
+            adapt_it=1,
+            active_electrons=2,
+            active_orbitals=2,
+            pool_type="bad_pool",
+        )
+
 
 def test_qsceom_rejects_invalid_parallel_knobs():
     symbols = ["H", "H"]
@@ -80,6 +90,18 @@ def test_qsceom_rejects_invalid_parallel_knobs():
             params=[0.0],
             ash_excitation=[[0, 1]],
             parallel_backend="bad_backend",
+        )
+
+    with pytest.raises(ValueError, match=r"ansatz_type must be one of"):
+        QCANT.qscEOM(
+            symbols=symbols,
+            geometry=geometry,
+            active_electrons=2,
+            active_orbitals=2,
+            charge=0,
+            params=[0.0],
+            ash_excitation=[[0, 1]],
+            ansatz_type="bad_ansatz",
         )
 
 
@@ -139,8 +161,6 @@ def test_qsceom_parallel_matrix_matches_serial_h2(symmetric: bool):
         method="pyscf",
         shots=0,
         symmetric=symmetric,
-        max_states=4,
-        state_seed=13,
     )
 
     values_serial = QCANT.qscEOM(**kwargs)

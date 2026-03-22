@@ -26,6 +26,12 @@ For development (pip/venv):
 
     pip install -e .
 
+To enable the optional Qulacs backend:
+
+.. code-block:: bash
+
+    pip install -e ".[qulacs]"
+
 Quickstart
 ----------
 .. code-block:: python

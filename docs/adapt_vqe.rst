@@ -70,6 +70,29 @@ Basic usage
    print("Final energy:", energies[-1])
    print("Number of selected excitations:", len(excitations))
 
+Pool selection
+--------------
+``adapt_vqe`` supports two operator-pool families via ``pool_type``:
+
+- ``"fermionic_sd"`` (default; aliases: ``"sd"``, ``"fermionic"``)
+- ``"qubit_excitation"`` (aliases: ``"qe"``, ``"qubit"``)
+
+Example (QE pool):
+
+.. code-block:: python
+
+   params, excitations, energies = QCANT.adapt_vqe(
+      symbols=symbols,
+      geometry=geometry,
+      adapt_it=5,
+      basis="sto-6g",
+      charge=0,
+      spin=0,
+      active_electrons=4,
+      active_orbitals=4,
+      pool_type="qe",
+   )
+
 Parallel commutator evaluation
 ------------------------------
 The most expensive ADAPT step is usually evaluating commutators (operator

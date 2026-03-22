@@ -113,6 +113,13 @@ A few practical notes:
 - ``geometry`` is expected to be array-like with shape ``(n_atoms, 3)``.
 - ``params`` and ``ash_excitation`` must be consistent with each other:
   the number of parameters must match the number of excitations.
+- ``include_identity=True`` by default, so the qscEOM basis is the standard
+  ``I + singles + doubles`` projected space.
+- For ADAPT runs built from the QE pool, qscEOM can replay the ansatz using
+  ``ansatz_type="qubit_excitation"`` (or automatically when using
+  ``ansatz=(params, ash_excitation, energies)`` returned by ``QCANT.adapt_vqe``).
+- The same ``ansatz=(params, ash_excitation, history)`` handoff also works for
+  ``QCANT.tepid_adapt`` because it returns the same ansatz/excitation structure.
 
 Notes
 -----

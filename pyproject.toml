@@ -35,6 +35,7 @@ dependencies = [
     "scipy<2",
     "pennylane",
     "pyscf",
+    "openfermion",
     "autoray>=0.6.11,<0.9",
 ]
 
@@ -45,6 +46,9 @@ Source = "https://github.com/asthanalab/QCANT"
 Documentation = "https://asthanalab.github.io/QCANT/"
 
 [project.optional-dependencies]
+qulacs = [
+  "qulacs",
+]
 test = [
   "pytest>=6.1.2",
 ]
