@@ -11,6 +11,7 @@ Public API
 
 from .QCANT import canvas
 from .adapt import adapt_vqe
+from .adaptkrylov import adaptKrylov, adapt_krylov
 from .qrte import qrte, qrte_pmte
 from .krylov import exact_krylov
 from .qkud import qkud
@@ -30,6 +31,8 @@ from ._version import __version__
 
 __all__ = [
 	"adapt_vqe",
+	"adaptKrylov",
+	"adapt_krylov",
 	"qrte",
 	"qrte_pmte",
 	"exact_krylov",

@@ -11,6 +11,7 @@ dependencies:
   - scipy<2
   - pennylane
   - pyscf
+  - openfermion
   - autoray<0.7
 
   # Testing
@@ -27,4 +28,4 @@ dependencies:
   - matplotlib
 
   # Note: additional optional dependencies may still improve performance
-  # (e.g. pennylane-lightning) but are not required.
+  # (e.g. pennylane-lightning, qulacs) but are not required in the base env.
