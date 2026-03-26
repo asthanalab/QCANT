@@ -23,6 +23,7 @@ def test_adapt_krylov_h2_reports_variational_krylov_energies():
         device_name="default.qubit",
         optimizer_maxiter=25,
         hamiltonian_source="casci",
+        backend="pennylane",
     )
 
     adapt_array = np.asarray(adapt_energies, dtype=float)
@@ -40,5 +41,6 @@ def test_adapt_krylov_h2_reports_variational_krylov_energies():
     assert np.all(order1 <= adapt_array + 1e-8)
     assert np.all(order2 <= order1 + 1e-8)
     assert np.all(order2 >= exact_ground - 1e-8)
+    assert details["backend"] == "pennylane"
     assert all("krylov_order1_energy" in item for item in history)
     assert all("krylov_order2_energy" in item for item in history)

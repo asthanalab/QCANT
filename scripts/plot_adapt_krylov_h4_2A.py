@@ -152,6 +152,11 @@ def main() -> None:
         optimizer_maxiter=40,
         pool_type="fermionic_sd",
         hamiltonian_source="casci",
+        backend="qulacs",
+        parallel_gradients=True,
+        max_workers=4,
+        parallel_postprocessing=True,
+        postprocess_workers=4,
     )
 
     exact_ground = float(details["exact_ground_energy"])

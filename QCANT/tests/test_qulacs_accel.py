@@ -157,6 +157,54 @@ def test_adapt_vqe_qulacs_sampled_qe_runs_h2():
     assert np.all(np.isfinite(qulacs_energies))
 
 
+def test_adapt_krylov_qulacs_matches_reference_h2():
+    symbols = ["H", "H"]
+    geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 0.74]], dtype=float)
+
+    _ref_params, ref_exc, ref_energies, ref_details = QCANT.adaptKrylov(
+        symbols=symbols,
+        geometry=geometry,
+        adapt_it=1,
+        basis="sto-3g",
+        charge=0,
+        spin=0,
+        active_electrons=2,
+        active_orbitals=2,
+        optimizer_maxiter=10,
+        backend="pennylane",
+    )
+    qulacs_params, qulacs_exc, qulacs_energies, qulacs_details = QCANT.adaptKrylov(
+        symbols=symbols,
+        geometry=geometry,
+        adapt_it=1,
+        basis="sto-3g",
+        charge=0,
+        spin=0,
+        active_electrons=2,
+        active_orbitals=2,
+        optimizer_maxiter=10,
+        backend="qulacs",
+        max_workers=2,
+    )
+
+    assert qulacs_exc == ref_exc
+    assert qulacs_details["backend"] == "qulacs"
+    np.testing.assert_allclose(qulacs_params, _ref_params, atol=1e-6, rtol=0.0)
+    np.testing.assert_allclose(qulacs_energies, ref_energies, atol=1e-9, rtol=0.0)
+    np.testing.assert_allclose(
+        qulacs_details["krylov_order1_energies"],
+        ref_details["krylov_order1_energies"],
+        atol=1e-9,
+        rtol=0.0,
+    )
+    np.testing.assert_allclose(
+        qulacs_details["krylov_order2_energies"],
+        ref_details["krylov_order2_energies"],
+        atol=1e-9,
+        rtol=0.0,
+    )
+
+
 def test_cvqe_qulacs_matches_reference_h2():
     symbols = ["H", "H"]
     geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 3.0]], dtype=float)

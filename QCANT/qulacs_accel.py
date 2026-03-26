@@ -1699,6 +1699,38 @@ def adapt_vqe_qulacs(
         hamiltonian_cutoff=hamiltonian_cutoff,
         hamiltonian_source=hamiltonian_source,
     )
+    return _adapt_vqe_qulacs_from_payload(
+        payload,
+        adapt_it=adapt_it,
+        pool_type=pool_type,
+        pool_sample_size=pool_sample_size,
+        pool_seed=pool_seed,
+        parallel_gradients=parallel_gradients,
+        max_workers=max_workers,
+        gradient_chunk_size=gradient_chunk_size,
+        optimizer_method=optimizer_method,
+        optimizer_maxiter=optimizer_maxiter,
+        return_history=return_history,
+        iteration_callback=iteration_callback,
+    )
+
+
+def _adapt_vqe_qulacs_from_payload(
+    payload,
+    *,
+    adapt_it: int,
+    pool_type: str,
+    pool_sample_size: Optional[int],
+    pool_seed: Optional[int],
+    parallel_gradients: bool,
+    max_workers: Optional[int],
+    gradient_chunk_size: Optional[int],
+    optimizer_method: str,
+    optimizer_maxiter: int,
+    return_history: bool,
+    iteration_callback: Optional[Callable[[Mapping[str, object]], None]],
+):
+    """Run the Qulacs ADAPT loop from a pre-built Hamiltonian payload."""
     np = payload["np"]
     qml = payload["qml"]
     QuantumState = payload["QuantumState"]
