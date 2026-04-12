@@ -71,6 +71,41 @@ Basic usage
 
    print(values)
 
+Parallel matrix construction
+----------------------------
+qscEOM matrix elements are independent once the ansatz is fixed. QCANT now
+supports optional concurrent construction of diagonal/off-diagonal elements:
+
+.. code-block:: python
+
+   values = QCANT.qscEOM(
+       symbols=symbols,
+       geometry=geometry,
+       active_electrons=active_electrons,
+       active_orbitals=active_orbitals,
+       charge=charge,
+       params=params,
+       ash_excitation=ash_excitation,
+       basis="sto-3g",
+       method="pyscf",
+       shots=0,
+       parallel_matrix=True,
+       parallel_backend="process",  # process|thread|auto
+       max_workers=4,        # optional; defaults to os.cpu_count()
+       matrix_chunk_size=16, # optional task granularity control
+   )
+
+Notes:
+
+- ``symmetric=True`` remains the recommended default to avoid redundant
+  off-diagonal evaluations.
+- Parallel mode preserves the same matrix/eigenvalue definitions as serial mode.
+- No additional package is required for this parallel mode; it uses Python's
+  standard-library ``concurrent.futures``.
+- In restricted environments where process pools are unavailable, QCANT
+  automatically falls back to thread-based execution.
+- For tuning guidance, see :doc:`parallelization`.
+
 Inputs
 ------
 A few practical notes:
@@ -78,6 +113,13 @@ A few practical notes:
 - ``geometry`` is expected to be array-like with shape ``(n_atoms, 3)``.
 - ``params`` and ``ash_excitation`` must be consistent with each other:
   the number of parameters must match the number of excitations.
+- ``include_identity=True`` by default, so the qscEOM basis is the standard
+  ``I + singles + doubles`` projected space.
+- For ADAPT runs built from the QE pool, qscEOM can replay the ansatz using
+  ``ansatz_type="qubit_excitation"`` (or automatically when using
+  ``ansatz=(params, ash_excitation, energies)`` returned by ``QCANT.adapt_vqe``).
+- The same ``ansatz=(params, ash_excitation, history)`` handoff also works for
+  ``QCANT.tepid_adapt`` because it returns the same ansatz/excitation structure.
 
 Notes
 -----

@@ -1,9 +1,9 @@
 QCANT
 ==============================
 [//]: # (Badges)
-[![GitHub Actions Build Status](https://github.com/srivathsanps-quantum/QCANT/workflows/CI/badge.svg)](https://github.com/srivathsanps-quantum/QCANT/actions?query=workflow%3ACI)
-[![codecov](https://codecov.io/gh/srivathsanps-quantum/QCANT/branch/main/graph/badge.svg)](https://codecov.io/gh/srivathsanps-quantum/QCANT/branch/main)
-[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://srivathsanps-quantum.github.io/QCANT/)
+[![CI](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml/badge.svg?branch=main)](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml?query=branch%3Amain)
+[![codecov](https://codecov.io/gh/asthanalab/QCANT/branch/main/graph/badge.svg)](https://codecov.io/gh/asthanalab/QCANT/branch/main)
+[![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://asthanalab.github.io/QCANT/)
 
 
 Utilities for near-term applications of quantum computing in chemistry and materials science.
@@ -12,6 +12,12 @@ This repository currently contains a lightweight, template-derived QCANT package
 and intended to grow as project modules are added.
 
 ## Install
+
+You can install QCANT from PyPI:
+
+```bash
+pip install QCANT
+```
 
 QCANT requires scientific Python dependencies (installed automatically when you `pip install QCANT`):
 
@@ -32,6 +38,12 @@ For development (pip/venv):
 
 ```bash
 pip install -e .
+```
+
+To enable the optional Qulacs simulator backend:
+
+```bash
+pip install -e ".[qulacs]"
 ```
 
 For users (once QCANT is published to PyPI):
@@ -65,11 +77,39 @@ import QCANT
 print(QCANT.canvas())
 ```
 
+## Qulacs Backend
+
+QCANT also exposes optional Qulacs-backed exact-state routines for the
+simulator-heavy algorithms:
+
+- `QCANT.qkud_qulacs`
+- `QCANT.qrte_qulacs`
+- `QCANT.qrte_pmte_qulacs`
+- `QCANT.adapt_vqe_qulacs`
+- `QCANT.cvqe_qulacs`
+
+The Qulacs path is aimed at reducing simulator overhead rather than replacing
+the chemistry stack. PySCF and PennyLane are still used for Hamiltonian and
+active-space construction, while Qulacs handles the state evolution and
+expectation-value hot loops.
+
+The current speed-focused implementation does three main things:
+
+- compiles PennyLane chemistry gates once into reusable Qulacs parametric circuits
+- uses Qulacs backprop for native ADAPT-VQE gradients
+- reduces CVQE inner optimization by solving the selected-determinant
+  coefficients in the current reference space and optimizing only the ansatz
+  parameters
+
+For larger exact-state runs, prefer `evolution_mode="trotter"` in the Qulacs
+QRTE/QKUD routines. The `"sparse"` mode still materializes the Hamiltonian
+matrix and is not the scalable choice near the 16-20 qubit range.
+
 ## Documentation
 
 Hosted documentation:
 
-- https://srivathsanps-quantum.github.io/QCANT/
+- https://asthanalab.github.io/QCANT/
 
 The documentation lives in `docs/` and is built with Sphinx:
 

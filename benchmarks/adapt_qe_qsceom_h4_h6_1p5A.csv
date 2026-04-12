@@ -1,0 +1,5 @@
+molecule,n_atoms,spacing_angstrom,basis,active_electrons,active_orbitals,adapt_iterations,pool_type,pool_sample_size,optimizer_method,optimizer_maxiter,n_adapt_params,adapt_energy,qsceom_include_identity,qsceom_basis_dim,qsceom_ground_energy,qsceom_minus_adapt
+h4,4,1.5,sto-3g,4,4,2,qe,24,BFGS,40,2,-1.84146068626929,True,27,-2.1653263011646207,-0.3238656148953307
+h4,4,1.5,sto-3g,4,4,2,qe,24,BFGS,40,2,-1.84146068626929,False,26,-1.7780505645254807,0.06341012174380922
+h6,6,1.5,sto-3g,6,6,2,qe,24,BFGS,40,2,-2.757074048686528,True,118,-3.1976986120213944,-0.44062456333486644
+h6,6,1.5,sto-3g,6,6,2,qe,24,BFGS,40,2,-2.757074048686528,False,117,-2.8992429596404334,-0.1421689109539055

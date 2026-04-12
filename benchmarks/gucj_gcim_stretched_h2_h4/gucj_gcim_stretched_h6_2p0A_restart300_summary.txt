@@ -1,0 +1,8 @@
+Default frozen-K g-uCJ-GCIM H6 restarted-iteration summary
+Source cycle CSV: benchmarks/gucj_gcim_stretched_h2_h4/gucj_gcim_stretched_h6_2p0A.csv
+Bond length (A): 2.000000
+Threads: 4
+Cycle length: 66
+Requested total iterations: 300
+Restart cycles represented: 5
+Note: the default frozen-K H6 path is deterministic, so each pool refresh reproduces the same cycle exactly.

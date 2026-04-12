@@ -1,0 +1,20 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "QCANT"
+type: software
+authors:
+  - given-names: "SRIVATHSAN P"
+    family-names: "SUNDAR"
+    email: "sundarbalaji4@gmail.com"
+  - given-names: "Prince"
+    family-names: "Kwao"
+    email: "prince.kwao@und.edu"
+  - given-names: "Ayush"
+    family-names: "Asthana"
+    email: "ayushasthana15@gmmail.com"
+license: "BSD-3-Clause"
+abstract: "A set of codes useful for near-term applications of quantum computing in chemistry and materials science."
+homepage: "https://asthanalab.github.io/QCANT/"
+repository-code: "https://github.com/asthanalab/QCANT"
+url: "https://github.com/asthanalab/QCANT"
+version: "1.0.0"

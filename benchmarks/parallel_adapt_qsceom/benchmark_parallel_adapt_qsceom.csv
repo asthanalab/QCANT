@@ -1,0 +1,9 @@
+algorithm,workers,median_seconds,std_seconds,speedup_vs_1
+adapt_vqe,1,17.05613,0.0,1.0
+qscEOM,1,6.586887,0.0,1.0
+adapt_vqe,2,12.965123,0.0,1.315539
+qscEOM,2,4.922304,0.0,1.338171
+adapt_vqe,4,11.306178,0.0,1.508567
+qscEOM,4,4.897544,0.0,1.344937
+adapt_vqe,8,10.875679,0.0,1.568282
+qscEOM,8,4.930243,0.0,1.336017

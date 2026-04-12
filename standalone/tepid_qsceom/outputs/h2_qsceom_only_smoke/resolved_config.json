@@ -1,0 +1,41 @@
+{
+  "symbols": [
+    "H",
+    "H"
+  ],
+  "geometry": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      0.74
+    ]
+  ],
+  "basis": "sto-3g",
+  "charge": 0,
+  "spin": 0,
+  "active_electrons": 2,
+  "active_orbitals": 2,
+  "output_dir": "standalone/tepid_qsceom/outputs/h2_qsceom_only_smoke",
+  "tepid": {
+    "adapt_it": 4,
+    "beta": 3.0,
+    "pool_type": "fermionic_sd",
+    "include_identity": true,
+    "optimizer_method": "BFGS",
+    "optimizer_maxiter": 50,
+    "gradient_eps": 1e-07,
+    "gradient_tol": null
+  },
+  "qsceom": {
+    "include_identity": true,
+    "max_roots": 0,
+    "compute_exact_sector": true,
+    "each_iteration": false
+  },
+  "_config_path": "/Users/ayushasthana/Library/CloudStorage/OneDrive-NorthDakotaUniversitySystem/code/qcomputing/QCANT/standalone/tepid_qsceom/configs/h2_sto3g.json"
+}

@@ -1,0 +1,53 @@
+{
+  "symbols": [
+    "H",
+    "H",
+    "H",
+    "H"
+  ],
+  "geometry": [
+    [
+      0.0,
+      0.0,
+      0.0
+    ],
+    [
+      0.0,
+      0.0,
+      3.0
+    ],
+    [
+      0.0,
+      0.0,
+      6.0
+    ],
+    [
+      0.0,
+      0.0,
+      9.0
+    ]
+  ],
+  "basis": "sto-3g",
+  "charge": 0,
+  "spin": 0,
+  "active_electrons": 4,
+  "active_orbitals": 4,
+  "output_dir": "../outputs/h4_linear_3p0A",
+  "tepid": {
+    "adapt_it": 20,
+    "beta": 3.0,
+    "pool_type": "fermionic_sd",
+    "include_identity": true,
+    "optimizer_method": "BFGS",
+    "optimizer_maxiter": 10,
+    "gradient_eps": 1e-07,
+    "gradient_tol": null
+  },
+  "qsceom": {
+    "include_identity": true,
+    "max_roots": 0,
+    "compute_exact_sector": true,
+    "each_iteration": true
+  },
+  "_config_path": "/Users/ayushasthana/Library/CloudStorage/OneDrive-NorthDakotaUniversitySystem/code/qcomputing/QCANT/standalone/tepid_qsceom/configs/h4_linear_3p0A.json"
+}

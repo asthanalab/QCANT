@@ -63,12 +63,69 @@ Basic usage
       basis="sto-6g",
       charge=0,
       spin=0,
-         active_electrons=4,
-         active_orbitals=4,
+      active_electrons=4,
+      active_orbitals=4,
    )
 
    print("Final energy:", energies[-1])
    print("Number of selected excitations:", len(excitations))
+
+Pool selection
+--------------
+``adapt_vqe`` supports two operator-pool families via ``pool_type``:
+
+- ``"fermionic_sd"`` (default; aliases: ``"sd"``, ``"fermionic"``)
+- ``"qubit_excitation"`` (aliases: ``"qe"``, ``"qubit"``)
+
+Example (QE pool):
+
+.. code-block:: python
+
+   params, excitations, energies = QCANT.adapt_vqe(
+      symbols=symbols,
+      geometry=geometry,
+      adapt_it=5,
+      basis="sto-6g",
+      charge=0,
+      spin=0,
+      active_electrons=4,
+      active_orbitals=4,
+      pool_type="qe",
+   )
+
+Parallel commutator evaluation
+------------------------------
+The most expensive ADAPT step is usually evaluating commutators (operator
+selection gradients) over the pool. QCANT now supports optional concurrent
+evaluation for this stage:
+
+.. code-block:: python
+
+   params, excitations, energies = QCANT.adapt_vqe(
+      symbols=symbols,
+      geometry=geometry,
+      adapt_it=5,
+      basis="sto-6g",
+      charge=0,
+      spin=0,
+      active_electrons=4,
+      active_orbitals=4,
+      parallel_gradients=True,
+      parallel_backend="process",  # process|thread|auto
+      max_workers=4,          # optional; defaults to os.cpu_count()
+      gradient_chunk_size=8,  # optional task granularity control
+   )
+
+Notes:
+
+- ADAPT iterations and optimizer steps remain serial by design.
+- Only independent commutator evaluations are parallelized.
+- Selection tie-breaking remains deterministic (matches serial order).
+- No additional package is required for this parallel mode; it uses Python's
+  standard-library ``concurrent.futures``.
+- In restricted environments where process pools are unavailable, QCANT
+  automatically falls back to thread-based execution.
+- For tuning guidance, see :doc:`parallelization`.
 
 Outputs
 -------
