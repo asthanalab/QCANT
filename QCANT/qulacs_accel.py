@@ -618,7 +618,16 @@ def _build_hamiltonian_payload(
 
 def _build_projection_matrices(basis_states, h_qulacs, np, *, max_workers: Optional[int]):
     basis_array = np.stack([np.asarray(state.get_vector(), dtype=complex) for state in basis_states], axis=0)
+    basis_norms = np.linalg.norm(basis_array, axis=1)
+    if np.any(~np.isfinite(basis_norms)) or np.any(basis_norms == 0.0):
+        raise ValueError("projected basis contains a zero- or non-finite-norm vector")
+    norm_scales = basis_norms[:, None] * basis_norms[None, :]
+
     overlap = basis_array.conj() @ basis_array.T
+    # Krylov vectors can differ by many orders of magnitude. Normalize the projected
+    # overlap/Hamiltonian entries by the basis norms so the overlap cutoff is applied
+    # to a scale-consistent generalized eigenproblem without changing the span.
+    overlap = overlap / norm_scales
     size = len(basis_states)
     h_proj = np.zeros((size, size), dtype=complex)
 
@@ -648,6 +657,7 @@ def _build_projection_matrices(basis_states, h_qulacs, np, *, max_workers: Optio
                 if col_idx != row_idx:
                     h_proj[col_idx, row_idx] = np.conj(value)
 
+    h_proj = h_proj / norm_scales
     return overlap, h_proj, basis_array
 
 

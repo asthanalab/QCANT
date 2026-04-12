@@ -122,8 +122,18 @@ def _build_hamiltonian_qml(
 def _project_ground_energy(np, basis_vectors, hamiltonian_matrix, overlap_tol: float) -> tuple[float, int]:
     """Solve the generalized eigenproblem in the span of ``basis_vectors``."""
     basis = np.asarray(basis_vectors, dtype=complex)
+    basis_norms = np.linalg.norm(basis, axis=1)
+    if np.any(~np.isfinite(basis_norms)) or np.any(basis_norms == 0.0):
+        raise ValueError("Krylov basis collapsed numerically")
+
+    # Krylov vectors |psi>, H|psi>, H^2|psi> can differ by many orders of magnitude.
+    # Normalize each vector before the generalized eigenvalue reduction so the
+    # overlap threshold is scale-consistent while leaving the span unchanged.
+    basis = basis / basis_norms[:, None]
+    h_proj_basis = (hamiltonian_matrix @ np.asarray(basis_vectors, dtype=complex).T).T / basis_norms[:, None]
+
     overlap = basis.conj() @ basis.T
-    h_proj = basis.conj() @ (hamiltonian_matrix @ basis.T)
+    h_proj = basis.conj() @ h_proj_basis.T
 
     s_vals, s_vecs = np.linalg.eigh(overlap)
     keep = s_vals > float(overlap_tol)
@@ -159,6 +169,10 @@ def _solve_krylov_orders_dense(np, psi, hamiltonian_matrix, overlap_tol: float) 
 
 def _basis_rank_from_vectors(np, basis_vectors, overlap_tol: float) -> int:
     basis = np.stack([np.asarray(vector, dtype=complex) for vector in basis_vectors], axis=0)
+    basis_norms = np.linalg.norm(basis, axis=1)
+    if np.any(~np.isfinite(basis_norms)) or np.any(basis_norms == 0.0):
+        raise ValueError("Krylov basis collapsed numerically")
+    basis = basis / basis_norms[:, None]
     overlap = basis.conj() @ basis.T
     overlap = (overlap + overlap.conj().T) / 2.0
     s_vals = np.linalg.eigvalsh(overlap).real
