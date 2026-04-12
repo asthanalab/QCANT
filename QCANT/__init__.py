@@ -1,54 +1,52 @@
 """QCANT: quantum computing utilities (chemistry/materials science).
 
-This package is currently a lightweight scaffold created from the MolSSI
-cookiecutter template. The public API is intentionally small and stable.
-
-Public API
-----------
-- :func:`QCANT.canvas` – small example function used by the template.
-- :data:`QCANT.__version__` – package version string.
+This package exposes a stable public API while loading heavy scientific
+submodules lazily on first access.
 """
 
-from .QCANT import canvas
-from .adapt import adapt_vqe
-from .adaptkrylov import adaptKrylov, adapt_krylov
-from .qrte import qrte, qrte_pmte
-from .krylov import exact_krylov
-from .qkud import qkud
-from .gcim import gcim
-from .cvqe import cvqe
-from .qsceom import qscEOM
-from .tepid_adapt import tepid_adapt, tepid_boltzmann_weights
-from .qchem_units import geometry_for_pennylane, geometry_to_bohr
-from .qulacs_accel import (
-	adapt_vqe_qulacs,
-	cvqe_qulacs,
-	qkud_qulacs,
-	qrte_pmte_qulacs,
-	qrte_qulacs,
-)
+from __future__ import annotations
+
+from importlib import import_module
+
 from ._version import __version__
 
+
+_LAZY_EXPORTS = {
+    "canvas": (".QCANT", "canvas"),
+    "adapt_vqe": (".adapt", "adapt_vqe"),
+    "adaptKrylov": (".adaptkrylov", "adaptKrylov"),
+    "adapt_krylov": (".adaptkrylov", "adapt_krylov"),
+    "qrte": (".qrte", "qrte"),
+    "qrte_pmte": (".qrte", "qrte_pmte"),
+    "exact_krylov": (".krylov", "exact_krylov"),
+    "qkud": (".qkud", "qkud"),
+    "gcim": (".gcim", "gcim"),
+    "gucj_gcim": (".gucj_gcim", "gucj_gcim"),
+    "cvqe": (".cvqe", "cvqe"),
+    "qscEOM": (".qsceom", "qscEOM"),
+    "tepid_adapt": (".tepid_adapt", "tepid_adapt"),
+    "tepid_boltzmann_weights": (".tepid_adapt", "tepid_boltzmann_weights"),
+    "geometry_for_pennylane": (".qchem_units", "geometry_for_pennylane"),
+    "geometry_to_bohr": (".qchem_units", "geometry_to_bohr"),
+    "adapt_vqe_qulacs": (".qulacs_accel", "adapt_vqe_qulacs"),
+    "cvqe_qulacs": (".qulacs_accel", "cvqe_qulacs"),
+    "qkud_qulacs": (".qulacs_accel", "qkud_qulacs"),
+    "qrte_qulacs": (".qulacs_accel", "qrte_qulacs"),
+    "qrte_pmte_qulacs": (".qulacs_accel", "qrte_pmte_qulacs"),
+}
+
+
+def __getattr__(name: str):
+    """Lazily resolve heavy public exports on first access."""
+    if name not in _LAZY_EXPORTS:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    module_name, attribute_name = _LAZY_EXPORTS[name]
+    value = getattr(import_module(module_name, __name__), attribute_name)
+    globals()[name] = value
+    return value
+
+
 __all__ = [
-	"adapt_vqe",
-	"adaptKrylov",
-	"adapt_krylov",
-	"qrte",
-	"qrte_pmte",
-	"exact_krylov",
-	"qkud",
-	"gcim",
-	"cvqe",
-	"qscEOM",
-	"tepid_adapt",
-	"tepid_boltzmann_weights",
-	"canvas",
-	"adapt_vqe_qulacs",
-	"cvqe_qulacs",
-	"qkud_qulacs",
-	"qrte_qulacs",
-	"qrte_pmte_qulacs",
-	"geometry_for_pennylane",
-	"geometry_to_bohr",
-	"__version__",
+    *list(_LAZY_EXPORTS),
+    "__version__",
 ]

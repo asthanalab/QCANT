@@ -29,6 +29,7 @@ def _validate_inputs(
     regularization: float,
     overlap_tol: float,
     pool_type: str,
+    max_iterations: Optional[int],
 ) -> int:
     """Validate GCIM user inputs.
 
@@ -55,6 +56,8 @@ def _validate_inputs(
         raise ValueError("overlap_tol must be > 0")
     if pool_type not in {"sd", "singlet_sd", "gsd"}:
         raise ValueError("pool_type must be one of {'sd', 'singlet_sd', 'gsd'}")
+    if max_iterations is not None and max_iterations <= 0:
+        raise ValueError("max_iterations must be > 0 when provided")
 
     try:
         n_atoms = len(symbols)
@@ -85,6 +88,7 @@ def gcim(
     theta: float = 0.7853981633974483,  # pi/4
     regularization: float = 1e-10,
     overlap_tol: float = 1e-12,
+    max_iterations: Optional[int] = None,
     allow_repeated_operators: bool = True,
     print_progress: bool = True,
     return_details: bool = False,
@@ -137,6 +141,10 @@ def gcim(
     overlap_tol
         Threshold for overlap-matrix eigenvalue filtering in canonical
         orthogonalization.
+    max_iterations
+        Optional explicit cap on the GCIM operator-selection iterations. If
+        omitted, GCIM retains the legacy behavior of iterating over the full
+        operator pool.
     allow_repeated_operators
         Kept for API compatibility. GCIM now always enforces unique operator
         selection, so repeated operators are not used.
@@ -171,6 +179,7 @@ def gcim(
         regularization=regularization,
         overlap_tol=overlap_tol,
         pool_type=pool_type,
+        max_iterations=max_iterations,
     )
 
     try:
@@ -365,6 +374,8 @@ def gcim(
     if len(pool_ops) == 0:
         raise ValueError("operator pool is empty for the provided active space")
     fixed_iterations = int(len(pool_ops))
+    if max_iterations is not None:
+        fixed_iterations = min(int(max_iterations), int(len(pool_ops)))
 
     # ------------------------------------------------------------------
     # 3) Device circuits for state prep and commutators.
@@ -437,7 +448,7 @@ def gcim(
     hf_state = hf_state / np.linalg.norm(hf_state)
     states.append(hf_state)
 
-    if print_progress and int(adapt_it) != fixed_iterations:
+    if print_progress and max_iterations is None and int(adapt_it) != fixed_iterations:
         print(
             f"GCIM iterations are hardcoded to pool size={fixed_iterations}; "
             f"ignoring adapt_it={int(adapt_it)}.",
