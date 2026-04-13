@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import sys
+from types import ModuleType
 
 from .cvqe import cvqe
 
 
-_parent_pkg = sys.modules.get("QCANT")
-if _parent_pkg is not None:
-    setattr(_parent_pkg, "cvqe", cvqe)
+class _CallableModule(ModuleType):
+    def __call__(self, *args, **kwargs):
+        return cvqe(*args, **kwargs)
+
+
+sys.modules[__name__].__class__ = _CallableModule
 
 __all__ = [
     "cvqe",

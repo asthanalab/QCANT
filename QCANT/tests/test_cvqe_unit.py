@@ -37,7 +37,7 @@ from QCANT.cvqe.cvqe import (
 def test_public_cvqe_export_remains_callable_after_submodule_import():
     """Top-level QCANT.cvqe should still resolve to the callable function."""
     assert callable(QCANT.cvqe)
-    assert QCANT.cvqe is internal_cvqe
+    assert QCANT.cvqe.cvqe is internal_cvqe
 
 
 @pytest.mark.parametrize(
