@@ -9,6 +9,8 @@ from .cvqe import cvqe
 
 
 class _CallableModule(ModuleType):
+    """Allow ``QCANT.cvqe(...)`` even after the ``QCANT.cvqe`` submodule is imported."""
+
     def __call__(self, *args, **kwargs):
         return cvqe(*args, **kwargs)
 
