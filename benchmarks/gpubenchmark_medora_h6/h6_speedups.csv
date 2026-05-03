@@ -1,0 +1,9 @@
+algorithm,backend,accelerator_kind,problem_profile,basis,active_electrons,active_orbitals,n_qubits,median_runtime_s,stddev_runtime_s,speedup_vs_cpu,repeats,cpu_threads,cuda_visible_devices,status,note
+qkud,cpu,cpu,h6,sto-3g,6,6,12,41.359475,1.211321,1.0,2,1,0,ok,
+qkud,gpu,gpu,h6,sto-3g,6,6,12,46.478682,0.988984,0.889859,2,1,0,ok,
+exact_krylov,cpu,cpu,h6,sto-3g,6,6,12,41.257843,0.166204,1.0,2,1,0,ok,
+exact_krylov,gpu,gpu,h6,sto-3g,6,6,12,47.956375,0.497582,0.86032,2,1,0,ok,
+cvqe,cpu,cpu,h6,sto-3g,6,6,12,42.952412,1.061488,1.0,2,1,0,ok,
+cvqe,gpu,gpu,h6,sto-3g,6,6,12,43.024147,0.431076,0.998333,2,1,0,ok,
+standalone_qsceom,cpu,cpu,h6,sto-3g,6,6,12,39.68567,0.618336,1.0,2,1,0,ok,
+standalone_qsceom,gpu,gpu,h6,sto-3g,6,6,12,41.428825,0.532842,0.957924,2,1,0,ok,

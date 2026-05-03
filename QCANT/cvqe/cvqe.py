@@ -339,7 +339,7 @@ def _apply_local_gate(vec, gate_matrix, target_wires, *, qubits: int, np):
     state_tensor = np.asarray(vec, dtype=complex).reshape((2,) * int(qubits))
     remaining_wires = tuple(wire for wire in range(int(qubits)) if wire not in targets)
     permutation = targets + remaining_wires
-    inverse_permutation = np.argsort(permutation)
+    inverse_permutation = tuple(sorted(range(len(permutation)), key=permutation.__getitem__))
 
     permuted = np.transpose(state_tensor, permutation)
     flat_state = permuted.reshape(2**n_targets, -1)
