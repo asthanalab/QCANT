@@ -13,6 +13,7 @@ Top-level keys:
 - `spin`
 - `active_electrons`
 - `active_orbitals`
+- `array_backend`
 - `output_dir`
 - `tepid`
 - `qsceom`
@@ -31,6 +32,7 @@ Top-level keys:
   "spin": 0,
   "active_electrons": 2,
   "active_orbitals": 2,
+  "array_backend": "auto",
   "output_dir": "../outputs/h2_sto3g",
   "tepid": {
     "adapt_it": 4,
@@ -73,6 +75,10 @@ Top-level keys:
 
 - `active_orbitals`
   Number of active spatial orbitals.
+
+- `array_backend`
+  Dense array backend. Use `auto` or `numpy` for CPU behavior and `cupy` for
+  opt-in GPU dense linear algebra.
 
 ## `tepid` section
 

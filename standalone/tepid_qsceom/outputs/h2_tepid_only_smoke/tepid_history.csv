@@ -1,2 +1,0 @@
-iteration,free_energy_hartree,entropy,gradient_abs,basis_e0_hartree,basis_e1_hartree,basis_e2_hartree,basis_ee1_hartree,basis_ee2_hartree,selected_pool_index,selected_excitation,optimizer_success,optimizer_status,optimizer_nit,optimizer_nfev
-1,-0.9069470813154418,0.16085134582172042,0.1589035187118823,-0.8964458943999081,0.48415056968467457,0.4841505696846749,1.3805964640845827,1.380596464084583,2,0 1 2 3,False,2,4,97

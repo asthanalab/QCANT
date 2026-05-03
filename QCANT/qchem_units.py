@@ -19,11 +19,15 @@ BOHR_PER_ANGSTROM: float = 1.0 / ANGSTROM_PER_BOHR
 def geometry_to_bohr(geometry: NDArray[np.float64]) -> NDArray[np.float64]:
     """Return a copy of geometry converted from Angstrom to Bohr.
 
-    Args:
-        geometry: A NumPy array representing the molecular geometry in Angstrom.
+    Parameters
+    ----------
+    geometry
+        NumPy array representing the molecular geometry in Angstrom.
 
-    Returns:
-        A NumPy array with the geometry converted to Bohr.
+    Returns
+    -------
+    numpy.ndarray
+        Geometry converted to Bohr.
     """
     return np.asarray(geometry, dtype=float) * BOHR_PER_ANGSTROM
 
@@ -33,14 +37,18 @@ def geometry_for_pennylane(
 ) -> NDArray[np.float64]:
     """Return geometry in units expected by PennyLane's qchem backend.
 
-    Args:
-        geometry: A NumPy array representing the molecular geometry in Angstrom.
-        method: The quantum chemistry backend method used by PennyLane.
-                Defaults to "pyscf".
+    Parameters
+    ----------
+    geometry
+        NumPy array representing the molecular geometry in Angstrom.
+    method
+        Quantum chemistry backend method used by PennyLane. Defaults to
+        ``"pyscf"``.
 
-    Returns:
-        A NumPy array with the geometry converted to the appropriate units
-        for the specified PennyLane backend.
+    Returns
+    -------
+    numpy.ndarray
+        Geometry converted to the units expected by the selected backend.
     """
 
     if method == "pyscf":

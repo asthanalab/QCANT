@@ -1,0 +1,5 @@
+atoms,qubits,sector_dimension,sector_nnz,sparse_matrix_gib,batch_size,measured_cpu_seconds,projected_gpu_seconds,projected_gpu_speedup_vs_1cpu,projected_hybrid_1cpu_plus_1gpu_speedup,projected_hybrid_8cpu_plus_1gpu_speedup,note
+8,16,12870,2077350,0.023264143615961075,1,0.007223779,0.000425,16.997,17.997,24.997,GPU seconds use measured H6 dense V100 hot-loop time as conservative proxy; H8 GPU run was blocked by Slurm allocation limit.
+8,16,12870,2077350,0.023264143615961075,8,0.025056219,0.000471,53.198,54.198,61.198,GPU seconds use measured H6 dense V100 hot-loop time as conservative proxy; H8 GPU run was blocked by Slurm allocation limit.
+8,16,12870,2077350,0.023264143615961075,32,0.085980328,0.000835,102.97,103.97,110.97,GPU seconds use measured H6 dense V100 hot-loop time as conservative proxy; H8 GPU run was blocked by Slurm allocation limit.
+8,16,12870,2077350,0.023264143615961075,128,0.299862083,0.002836,105.734,106.734,113.734,GPU seconds use measured H6 dense V100 hot-loop time as conservative proxy; H8 GPU run was blocked by Slurm allocation limit.

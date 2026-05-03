@@ -33,6 +33,46 @@ class ExcitationList(list):
         self.pool_type = str(pool_type)
 
 
+def _normalize_array_backend(array_backend: Optional[str]) -> str:
+    """Normalize dense linear algebra backend selection."""
+    normalized = str(array_backend or "auto").strip().lower()
+    if normalized not in {"auto", "numpy", "cupy"}:
+        raise ValueError("array_backend must be one of {'auto', 'numpy', 'cupy'}")
+    return normalized
+
+
+def _resolve_array_module(array_backend: Optional[str], *, context: str):
+    """Resolve NumPy vs CuPy for dense linear algebra."""
+    np, _qml, _minimize = _require_dependencies()
+    normalized = _normalize_array_backend(array_backend)
+    if normalized == "cupy":
+        try:
+            import cupy as cp
+        except ImportError as exc:  # pragma: no cover
+            raise ImportError(
+                f"{context} requires CuPy for array_backend='cupy'. Install `cupy-cuda12x`."
+            ) from exc
+        return cp, "cupy", True
+    return np, "numpy", False
+
+
+def _to_host_array(value, *, dtype=None):
+    """Convert NumPy/CuPy arrays into NumPy host arrays."""
+    np, _qml, _minimize = _require_dependencies()
+    try:
+        import cupy as cp
+    except ImportError:  # pragma: no cover
+        cp = None
+
+    if cp is not None and isinstance(value, cp.ndarray):
+        arr = cp.asnumpy(value)
+        return np.asarray(arr, dtype=dtype) if dtype is not None else np.asarray(arr)
+    if hasattr(value, "get") and cp is not None:
+        arr = cp.asnumpy(cp.asarray(value))
+        return np.asarray(arr, dtype=dtype) if dtype is not None else np.asarray(arr)
+    return np.asarray(value, dtype=dtype) if dtype is not None else np.asarray(value)
+
+
 def _require_dependencies():
     """Import required scientific Python dependencies lazily."""
     try:
@@ -197,7 +237,7 @@ def _apply_local_operator_batch(states, op_matrix, target_wires, *, qubits: int,
 
     state_tensor = arr.reshape((2,) * int(qubits) + (batch,))
     permutation = targets + remaining + (int(qubits),)
-    inverse_permutation = tuple(int(idx) for idx in np.argsort(permutation))
+    inverse_permutation = tuple(sorted(range(len(permutation)), key=permutation.__getitem__))
 
     permuted = np.transpose(state_tensor, permutation)
     flat_state = permuted.reshape(2 ** len(targets), -1)
@@ -469,6 +509,7 @@ def tepid_adapt(
     basis_occupations=None,
     pool_sample_size: Optional[int] = None,
     pool_seed: Optional[int] = None,
+    array_backend: str = "auto",
     gradient_eps: float = 1e-7,
     gradient_tol: Optional[float] = None,
     optimizer_method: str = "BFGS",
@@ -478,6 +519,7 @@ def tepid_adapt(
 ):
     """Run ancilla-free TEPID-ADAPT on a molecular active space."""
     np, qml, minimize = _require_dependencies()
+    xp, array_backend_name, using_gpu = _resolve_array_module(array_backend, context="standalone tepid_adapt")
 
     if len(symbols) == 0:
         raise ValueError("symbols must be non-empty")
@@ -507,7 +549,7 @@ def tepid_adapt(
     beta_value = float(beta) if beta is not None else 1.0 / float(temperature)
     temperature_value = float(temperature) if temperature is not None else 1.0 / float(beta)
 
-    _H, H_dense, qubits, _geometry_array = _build_molecular_hamiltonian(
+    _H, H_dense_host, qubits, _geometry_array = _build_molecular_hamiltonian(
         symbols,
         geometry,
         basis=basis,
@@ -522,14 +564,15 @@ def tepid_adapt(
         include_identity=bool(include_identity),
         basis_occupations=basis_occupations,
     )
-    basis_columns = _build_basis_columns(basis_occ, qubits=int(qubits), np=np)
+    H_dense = xp.asarray(H_dense_host, dtype=complex)
+    basis_columns = _build_basis_columns(basis_occ, qubits=int(qubits), np=xp)
     pool_excitations = _build_operator_pool(qml, int(active_electrons), int(qubits))
     derivative_metadata = _build_derivative_metadata(
         qml,
         pool_excitations,
         ansatz_type=ansatz_type,
         gradient_eps=float(gradient_eps),
-        np=np,
+        np=xp,
     )
 
     ash_excitation = ExcitationList(ansatz_type=ansatz_type, pool_type=pool_type_canonical)
@@ -546,19 +589,19 @@ def tepid_adapt(
             ansatz_type=ansatz_type,
             qubits=int(qubits),
             qml=qml,
-            np=np,
+            np=xp,
         )
         h_states = H_dense @ states
-        basis_energies = np.real(np.sum(np.conj(states) * h_states, axis=0))
+        basis_energies = xp.real(xp.sum(xp.conj(states) * h_states, axis=0))
         weights, entropy, free_energy, log_partition = _thermal_summary(
             basis_energies,
             beta=beta_value,
-            np=np,
+            np=xp,
         )
         return {
-            "states": np.asarray(states, dtype=complex),
-            "basis_energies": np.asarray(basis_energies, dtype=float),
-            "thermal_weights": np.asarray(weights, dtype=float),
+            "states": xp.asarray(states, dtype=complex),
+            "basis_energies": xp.asarray(basis_energies, dtype=float),
+            "thermal_weights": xp.asarray(weights, dtype=float),
             "entropy": float(entropy),
             "free_energy": float(free_energy),
             "log_partition": float(log_partition),
@@ -592,12 +635,16 @@ def tepid_adapt(
                 meta["derivative"],
                 meta["target_wires"],
                 qubits=int(qubits),
-                np=np,
+                np=xp,
             )
             hd_states = H_dense @ d_states
-            deriv_energies = 2.0 * np.real(np.sum(np.conj(current_snapshot["states"]) * hd_states, axis=0))
+            deriv_energies = 2.0 * xp.real(
+                xp.sum(xp.conj(current_snapshot["states"]) * hd_states, axis=0)
+            )
             weighted_gradient = float(
-                np.dot(current_snapshot["thermal_weights"], np.asarray(deriv_energies, dtype=float))
+                _to_host_array(
+                    xp.dot(current_snapshot["thermal_weights"], xp.asarray(deriv_energies, dtype=float))
+                ).item()
             )
             score = abs(weighted_gradient)
             if score > max_score:
@@ -627,7 +674,9 @@ def tepid_adapt(
         current_snapshot = _evaluate_snapshot(params, ash_excitation)
         free_energies.append(float(current_snapshot["free_energy"]))
 
-        energy_order = np.argsort(current_snapshot["basis_energies"], kind="stable")
+        basis_energies_host = _to_host_array(current_snapshot["basis_energies"], dtype=float)
+        thermal_weights_host = _to_host_array(current_snapshot["thermal_weights"], dtype=float)
+        energy_order = np.argsort(basis_energies_host, kind="stable")
         sorted_basis_occ = [basis_occ[int(idx)] for idx in energy_order]
         iteration_snapshot = {
             "iteration": int(iteration + 1),
@@ -638,10 +687,10 @@ def tepid_adapt(
             "free_energy": float(current_snapshot["free_energy"]),
             "entropy": float(current_snapshot["entropy"]),
             "log_partition": float(current_snapshot["log_partition"]),
-            "basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float).copy(),
-            "thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float).copy(),
-            "sorted_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float)[energy_order].copy(),
-            "sorted_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float)[energy_order].copy(),
+            "basis_energies": basis_energies_host.copy(),
+            "thermal_weights": thermal_weights_host.copy(),
+            "sorted_basis_energies": basis_energies_host[energy_order].copy(),
+            "sorted_thermal_weights": thermal_weights_host[energy_order].copy(),
             "sorted_basis_occupations": [list(int(v) for v in occ) for occ in sorted_basis_occ],
             "params": np.asarray(params, dtype=float).copy(),
             "ash_excitation": [list(int(v) for v in excitation) for excitation in ash_excitation],
@@ -655,10 +704,15 @@ def tepid_adapt(
         if iteration_callback is not None:
             iteration_callback(iteration_snapshot)
 
-    final_order = np.argsort(current_snapshot["basis_energies"], kind="stable")
+    initial_basis_energies = _to_host_array(initial_snapshot["basis_energies"], dtype=float)
+    initial_thermal_weights = _to_host_array(initial_snapshot["thermal_weights"], dtype=float)
+    final_basis_energies = _to_host_array(current_snapshot["basis_energies"], dtype=float)
+    final_thermal_weights = _to_host_array(current_snapshot["thermal_weights"], dtype=float)
+    final_order = np.argsort(final_basis_energies, kind="stable")
     details = {
         "beta": float(beta_value),
         "temperature": float(temperature_value),
+        "array_backend": str(array_backend_name),
         "basis_occupations": [[int(v) for v in occ] for occ in basis_occ],
         "hf_occupation": [int(v) for v in hf_occ],
         "include_identity": bool(include_identity),
@@ -666,16 +720,16 @@ def tepid_adapt(
         "ansatz_type": ansatz_type,
         "initial_free_energy": float(initial_snapshot["free_energy"]),
         "initial_entropy": float(initial_snapshot["entropy"]),
-        "initial_basis_energies": np.asarray(initial_snapshot["basis_energies"], dtype=float).copy(),
-        "initial_thermal_weights": np.asarray(initial_snapshot["thermal_weights"], dtype=float).copy(),
+        "initial_basis_energies": initial_basis_energies.copy(),
+        "initial_thermal_weights": initial_thermal_weights.copy(),
         "final_free_energy": float(current_snapshot["free_energy"]),
         "final_entropy": float(current_snapshot["entropy"]),
         "final_log_partition": float(current_snapshot["log_partition"]),
-        "final_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float).copy(),
-        "final_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float).copy(),
-        "sorted_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float)[final_order].copy(),
+        "final_basis_energies": final_basis_energies.copy(),
+        "final_thermal_weights": final_thermal_weights.copy(),
+        "sorted_basis_energies": final_basis_energies[final_order].copy(),
         "sorted_basis_occupations": [basis_occ[int(idx)] for idx in final_order],
-        "sorted_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float)[final_order].copy(),
+        "sorted_thermal_weights": final_thermal_weights[final_order].copy(),
         "history": history,
     }
 
@@ -695,16 +749,21 @@ def _qsceom_projected_spectrum(
     include_identity: bool,
     basis_occupations,
     max_roots: int,
+    array_backend: str,
 ):
     """Compute the analytic projected qscEOM spectrum for a fixed Hamiltonian."""
     np, qml, _minimize = _require_dependencies()
+    xp, array_backend_name, _using_gpu = _resolve_array_module(
+        array_backend,
+        context="standalone qsceom",
+    )
     basis_occ, _hf_occ = _build_truncated_basis_occupations(
         active_electrons=int(active_electrons),
         qubits=int(qubits),
         include_identity=bool(include_identity),
         basis_occupations=basis_occupations,
     )
-    basis_columns = _build_basis_columns(basis_occ, qubits=int(qubits), np=np)
+    basis_columns = _build_basis_columns(basis_occ, qubits=int(qubits), np=xp)
     basis_states = _apply_ansatz_batch(
         basis_columns,
         params,
@@ -712,20 +771,22 @@ def _qsceom_projected_spectrum(
         ansatz_type=ansatz_type,
         qubits=int(qubits),
         qml=qml,
-        np=np,
+        np=xp,
     )
-    projected = basis_states.conj().T @ (H_dense @ basis_states)
+    h_dense_backend = xp.asarray(H_dense, dtype=complex)
+    projected = basis_states.conj().T @ (h_dense_backend @ basis_states)
     projected = 0.5 * (projected + projected.conj().T)
-    eigvals, eigvecs = np.linalg.eigh(projected)
-    order = np.argsort(np.real(eigvals))
-    eigvals_sorted = np.asarray(np.real(eigvals[order]), dtype=float)
-    eigvecs_sorted = np.asarray(eigvecs[:, order], dtype=complex)
+    eigvals, eigvecs = xp.linalg.eigh(projected)
+    order = xp.argsort(xp.real(eigvals))
+    eigvals_sorted = _to_host_array(xp.real(eigvals[order]), dtype=float)
+    eigvecs_sorted = _to_host_array(eigvecs[:, order], dtype=complex)
     if max_roots > 0:
         eigvals_sorted = eigvals_sorted[: int(max_roots)]
         eigvecs_sorted = eigvecs_sorted[:, : int(max_roots)]
     details = {
-        "projected_matrix": np.asarray(projected, dtype=complex),
-        "basis_states": np.asarray(basis_states, dtype=complex),
+        "array_backend": str(array_backend_name),
+        "projected_matrix": _to_host_array(projected, dtype=complex),
+        "basis_states": _to_host_array(basis_states, dtype=complex),
         "eigenvectors": eigvecs_sorted,
         "basis_occupations": [list(int(v) for v in occ) for occ in basis_occ],
     }
@@ -748,6 +809,7 @@ def qsceom(
     include_identity: bool = True,
     basis_occupations=None,
     max_roots: int = 0,
+    array_backend: str = "auto",
     return_details: bool = False,
 ):
     """Compute analytic qscEOM eigenvalues from an ansatz state."""
@@ -800,6 +862,7 @@ def qsceom(
         include_identity=bool(include_identity),
         basis_occupations=basis_occupations,
         max_roots=int(max_roots),
+        array_backend=array_backend,
     )
     if not return_details:
         return values
@@ -828,6 +891,7 @@ def tepid_qsceom(
     qsceom_include_identity: bool = True,
     qsceom_each_iteration: bool = False,
     qsceom_max_roots: int = 0,
+    array_backend: str = "auto",
 ):
     """Run TEPID-ADAPT and then analytic qscEOM on the final ansatz."""
     np, _qml, _minimize = _require_dependencies()
@@ -850,6 +914,7 @@ def tepid_qsceom(
         gradient_tol=gradient_tol,
         optimizer_method=optimizer_method,
         optimizer_maxiter=optimizer_maxiter,
+        array_backend=array_backend,
         return_details=True,
     )
 
@@ -872,6 +937,7 @@ def tepid_qsceom(
         include_identity=bool(qsceom_include_identity),
         basis_occupations=basis_occupations,
         max_roots=int(qsceom_max_roots),
+        array_backend=array_backend,
     )
 
     per_iteration = []
@@ -887,6 +953,7 @@ def tepid_qsceom(
                 include_identity=bool(qsceom_include_identity),
                 basis_occupations=basis_occupations,
                 max_roots=int(qsceom_max_roots),
+                array_backend=array_backend,
             )
             per_iteration.append(
                 {
@@ -1162,6 +1229,7 @@ def run_workflow(
     active_electrons = int(config["active_electrons"])
     active_orbitals = int(config["active_orbitals"])
     method = str(config.get("method", "pyscf"))
+    array_backend = str(config.get("array_backend", "auto"))
     output_dir = _resolve_output_dir(config, output_dir_override)
     output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -1204,6 +1272,7 @@ def run_workflow(
             gradient_tol=tepid_cfg.get("gradient_tol"),
             optimizer_method=str(tepid_cfg.get("optimizer_method", "BFGS")),
             optimizer_maxiter=int(tepid_cfg.get("optimizer_maxiter", 200)),
+            array_backend=array_backend,
             return_details=True,
         )
         write_csv_rows(output_dir / "tepid_history.csv", _tepid_history_rows(details))
@@ -1257,6 +1326,7 @@ def run_workflow(
             include_identity=bool(qsceom_cfg.get("include_identity", True)),
             basis_occupations=qsceom_cfg.get("basis_occupations"),
             max_roots=int(qsceom_cfg.get("max_roots", 0)),
+            array_backend=array_backend,
             return_details=True,
         )
         write_csv_rows(output_dir / "qsceom_spectrum.csv", _qsceom_rows(values))
@@ -1288,6 +1358,7 @@ def run_workflow(
         gradient_tol=tepid_cfg.get("gradient_tol"),
         optimizer_method=str(tepid_cfg.get("optimizer_method", "BFGS")),
         optimizer_maxiter=int(tepid_cfg.get("optimizer_maxiter", 200)),
+        array_backend=array_backend,
         qsceom_include_identity=bool(qsceom_cfg.get("include_identity", True)),
         qsceom_each_iteration=bool(qsceom_cfg.get("each_iteration", False)),
         qsceom_max_roots=int(qsceom_cfg.get("max_roots", 0)),
@@ -1352,6 +1423,8 @@ def _apply_cli_overrides(config: dict[str, Any], args: argparse.Namespace) -> di
         qsceom_cfg["each_iteration"] = True
     if args.qsceom_max_roots is not None:
         qsceom_cfg["max_roots"] = int(args.qsceom_max_roots)
+    if args.array_backend is not None:
+        updated["array_backend"] = str(args.array_backend)
 
     updated["tepid"] = tepid_cfg
     updated["qsceom"] = qsceom_cfg
@@ -1391,6 +1464,13 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Optional qscEOM root truncation; <=0 keeps the full spectrum",
+    )
+    parser.add_argument(
+        "--array-backend",
+        type=str,
+        default=None,
+        choices=["auto", "numpy", "cupy"],
+        help="Dense array backend for standalone TEPID/qscEOM workflows",
     )
     return parser
 

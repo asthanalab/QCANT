@@ -1,0 +1,19 @@
+name: qcant-gpu
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python>=3.11,<3.13
+  - pip
+  - numpy<2
+  - scipy<2
+  - pennylane
+  - pyscf
+  - openfermion
+  - autoray<0.7
+  - pytest
+  - pytest-cov
+  - matplotlib
+  - pip:
+      - pennylane-lightning-gpu
+      - cupy-cuda12x<14

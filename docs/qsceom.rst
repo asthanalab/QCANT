@@ -120,6 +120,9 @@ A few practical notes:
   ``ansatz=(params, ash_excitation, energies)`` returned by ``QCANT.adapt_vqe``).
 - The same ``ansatz=(params, ash_excitation, history)`` handoff also works for
   ``QCANT.tepid_adapt`` because it returns the same ansatz/excitation structure.
+- ``device_name="lightning.gpu"`` requests the PennyLane GPU device for dense
+  QNode-driven paths. The ``sparse_number_preserving`` projector remains
+  CPU-only in this release.
 
 Notes
 -----

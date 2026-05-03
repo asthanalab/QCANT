@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 # https://packaging.python.org/en/latest/specifications/declaring-project-metadata/
 [project]
 name = "QCANT"
-description = "A set of codes useful for near term applications of quantum computing in chemistry and materials science"
+description = "Quantum chemistry algorithms and acceleration utilities for near-term quantum computing research"
 dynamic = ["version"]
 readme = "README.md"
 authors = [
@@ -16,19 +16,17 @@ license = "BSD-3-Clause"
 license-files = ["LICENSE"]
 # See https://pypi.org/classifiers/
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Science/Research",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Topic :: Scientific/Engineering :: Chemistry",
     "Typing :: Typed",
 ]
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 # Declare any run-time dependencies that should be installed with the package.
 dependencies = [
     "numpy<2",
@@ -49,6 +47,10 @@ Documentation = "https://asthanalab.github.io/QCANT/"
 qulacs = [
   "qulacs",
 ]
+gpu = [
+  "pennylane-lightning-gpu",
+  "cupy-cuda12x<14",
+]
 test = [
   "pytest>=6.1.2",
 ]
@@ -57,6 +59,18 @@ docs = [
     "pydata-sphinx-theme",
     "sphinx-design",
     "sphinx-copybutton",
+]
+dev = [
+    "build",
+    "twine",
+    "packaging>=25",
+    "pytest>=6.1.2",
+    "pytest-cov",
+    "sphinx",
+    "pydata-sphinx-theme",
+    "sphinx-design",
+    "sphinx-copybutton",
+    "matplotlib",
 ]
 
 [tool.setuptools]

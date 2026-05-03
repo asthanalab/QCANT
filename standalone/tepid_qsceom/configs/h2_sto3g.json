@@ -9,6 +9,7 @@
   "spin": 0,
   "active_electrons": 2,
   "active_orbitals": 2,
+  "array_backend": "auto",
   "output_dir": "../outputs/h2_sto3g",
   "tepid": {
     "adapt_it": 4,

@@ -1,0 +1,39 @@
+algorithm,backend,accelerator_kind,problem_profile,basis,active_electrons,active_orbitals,n_qubits,median_runtime_s,stddev_runtime_s,speedup_vs_cpu,repeats,cpu_threads,cuda_visible_devices,status,note
+adapt_vqe,cpu,cpu,h6,sto-3g,6,6,12,35.272714,0.464299,1.0,2,1,0,ok,
+adapt_vqe,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+qscEOM,cpu,cpu,h6,sto-3g,6,6,12,47.537031,0.759563,1.0,2,1,0,ok,
+qscEOM,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+gcim,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+gcim,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+qrte,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+qrte,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+qrte_pmte,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+qrte_pmte,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+cvqe,cpu,cpu,h6,sto-3g,6,6,12,50.750901,1.743551,1.0,2,1,0,ok,
+cvqe,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+tepid_adapt,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+tepid_adapt,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+qkud,cpu,cpu,h6,sto-3g,6,6,12,48.263677,0.029844,1.0,2,1,0,ok,
+qkud,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+exact_krylov,cpu,cpu,h6,sto-3g,6,6,12,45.795083,0.135173,1.0,2,1,0,ok,
+exact_krylov,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+adaptKrylov,cpu,cpu,h6,sto-3g,6,6,12,109.047402,0.004622,1.0,2,1,0,ok,
+adaptKrylov,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+standalone_tepid_adapt,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+standalone_tepid_adapt,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+standalone_qsceom,cpu,cpu,h6,sto-3g,6,6,12,46.503038,0.031975,1.0,2,1,0,ok,
+standalone_qsceom,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+standalone_tepid_qsceom,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+standalone_tepid_qsceom,gpu,gpu,h6,sto-3g,6,6,12,,,,2,1,0,skipped,GPU backend unavailable or missing optional dependencies.
+adapt_vqe_qulacs,cpu,cpu,h6,sto-3g,6,6,12,32.65649,0.052149,1.0,2,1,0,ok,
+adapt_vqe_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,3.315163,0.009426,9.850644,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."
+cvqe_qulacs,cpu,cpu,h6,sto-3g,6,6,12,48.336647,0.00599,1.0,2,1,0,ok,
+cvqe_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,37.739956,0.016446,1.280782,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."
+qkud_qulacs,cpu,cpu,h6,sto-3g,6,6,12,47.792379,0.097176,1.0,2,1,0,ok,
+qkud_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,2.788566,0.004131,17.138693,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."
+qrte_qulacs,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+qrte_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,2.801182,0.020196,,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."
+qrte_pmte_qulacs,cpu,cpu,h6,sto-3g,6,6,12,,,,2,1,0,timeout,Timed out after 180 seconds.
+qrte_pmte_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,2.877713,0.006185,,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."
+adaptKrylov_qulacs,cpu,cpu,h6,sto-3g,6,6,12,108.973832,0.071191,1.0,2,1,0,ok,
+adaptKrylov_qulacs,qulacs_cpu,cpu_accelerator,h6,sto-3g,6,6,12,21.184973,0.04399,5.143921,2,1,0,ok,"Qulacs is a CPU accelerator, not a GPU backend."

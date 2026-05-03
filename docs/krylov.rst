@@ -51,6 +51,8 @@ Options
 - ``basis_threshold``: drop amplitudes below this threshold after each basis update and
   re-normalize the state (use 0.0 to disable).
 - ``use_sparse``: use a sparse Hamiltonian representation for state updates.
+- ``array_backend``: ``"numpy"`` for CPU dense arrays, ``"cupy"`` for opt-in
+  GPU dense arrays, or ``"auto"`` for the default CPU behavior.
 - ``return_min_energy_history``: return the minimum energy after each basis step.
 
 Outputs
@@ -71,3 +73,5 @@ Notes
 - ``krylov_method="exact"`` does not orthogonalize during basis construction;
   orthogonalization is performed via the overlap matrix during projection.
 - ``krylov_method="lanczos"`` builds an orthonormal basis by construction.
+- ``use_sparse=True`` remains CPU-only in this release; request GPU execution
+  only for the dense path with ``array_backend="cupy"``.

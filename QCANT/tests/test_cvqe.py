@@ -34,6 +34,7 @@ def test_cvqe_h2_exact_runs_and_records_history():
         optimizer_maxiter=20,
         selection_seed=123,
         print_progress=False,
+        array_backend="numpy",
         return_details=True,
     )
 
@@ -42,6 +43,7 @@ def test_cvqe_h2_exact_runs_and_records_history():
     assert len(determinants) == len(energies) == len(details["history"]) == 2
     assert all(np.isfinite(float(e)) for e in energies)
     assert details["initial_energy"] >= float(energies[-1]) - 1e-6
+    assert details["array_backend"] == "numpy"
     assert all(item["selection_mode"] == "exact" for item in details["history"])
     _assert_nonincreasing(energies)
 

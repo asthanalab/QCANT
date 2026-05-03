@@ -17,7 +17,9 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_compl
 from functools import lru_cache
 import multiprocessing as mp
 from typing import Any, Mapping, Optional, Sequence, Tuple
+import warnings
 
+from .._accelerator import build_qml_device, is_gpu_device_name, resolve_gpu_parallelism
 from .excitations import inite
 
 
@@ -95,7 +97,7 @@ def _build_pyscf_molecular_integrals(
     active_electrons: int,
     active_orbitals: int,
 ):
-    """Build molecular integrals matching PennyLane's ``method='pyscf'`` path."""
+    """Build active-space molecular integrals for the requested CAS."""
     import numpy as np
 
     symbols_key = tuple(str(symbol) for symbol in symbols)
@@ -125,25 +127,75 @@ def _build_pyscf_molecular_integrals_cached(
     active_electrons: int,
     active_orbitals: int,
 ):
-    """Cached PySCF integral builder for repeated qscEOM runs on the same molecule."""
+    """Cached active-space PySCF integral builder for repeated qscEOM runs."""
     import numpy as np
-    from pennylane.qchem import openfermion_pyscf as qchem_ofp
+    import pyscf
+    from pyscf import ao2mo, gto, mcscf, scf
 
-    coordinates = np.asarray(geometry_key, dtype=float)
-    core_constant, one_mo, two_mo = qchem_ofp._pyscf_integrals(
-        list(symbols_key),
-        coordinates,
-        charge=charge,
-        mult=1,
+    coordinates = np.asarray(geometry_key, dtype=float).reshape(len(symbols_key), 3)
+    atom = [(symbols_key[i], tuple(float(x) for x in coordinates[i])) for i in range(len(symbols_key))]
+
+    mol_ref = gto.Mole()
+    mol_ref.atom = atom
+    mol_ref.unit = "Angstrom"
+    mol_ref.basis = basis
+    mol_ref.charge = int(charge)
+    mol_ref.spin = 0
+    mol_ref.symmetry = False
+    mol_ref.build()
+
+    mf_ref = scf.RHF(mol_ref)
+    mf_ref.level_shift = 0.5
+    mf_ref.diis_space = 12
+    mf_ref.max_cycle = 100
+    mf_ref.kernel()
+    if not mf_ref.converged:
+        mf_ref = scf.newton(mf_ref).run()
+
+    mycas_ref = mcscf.CASCI(mf_ref, int(active_orbitals), int(active_electrons))
+    h1ecas, ecore = mycas_ref.get_h1eff(mf_ref.mo_coeff)
+    h2ecas = mycas_ref.get_h2eff(mf_ref.mo_coeff)
+    ncas = int(mycas_ref.ncas)
+    two_mo = ao2mo.restore("1", h2ecas, norb=ncas)
+    two_mo = np.swapaxes(two_mo, 1, 3)
+
+    return (
+        np.asarray([ecore], dtype=float),
+        np.asarray(h1ecas, dtype=float),
+        np.asarray(two_mo, dtype=float),
+    )
+
+
+def _build_pyscf_active_space_hamiltonian(
+    *,
+    symbols: Sequence[str],
+    geometry,
+    basis: str,
+    charge: int,
+    active_electrons: int,
+    active_orbitals: int,
+    hamiltonian_cutoff: float = 1e-20,
+):
+    """Build the active-space qubit Hamiltonian and matching MO integrals."""
+    import pennylane as qml
+
+    core_constant, one_mo, two_mo = _build_pyscf_molecular_integrals(
+        symbols=symbols,
+        geometry=geometry,
         basis=basis,
+        charge=charge,
         active_electrons=active_electrons,
         active_orbitals=active_orbitals,
     )
-    return (
-        np.asarray(core_constant, dtype=float),
-        np.asarray(one_mo, dtype=float),
-        np.asarray(two_mo, dtype=float),
+    h_fermionic = qml.qchem.fermionic_observable(
+        core_constant,
+        one_mo,
+        two_mo,
+        cutoff=float(hamiltonian_cutoff),
     )
+    h_qubit = qml.jordan_wigner(h_fermionic)
+    qubits = 2 * int(one_mo.shape[0])
+    return h_qubit, qubits, int(active_electrons), core_constant, one_mo, two_mo
 
 
 def _expand_spatial_integrals_to_spin_orbital(one_mo, two_mo):
@@ -416,26 +468,6 @@ def _qsceom_worker_init(payload):
     import numpy as np
     import pennylane as qml
 
-    device_kwargs = dict(payload.get("device_kwargs") or {})
-
-    def _make_device(
-        name: Optional[str],
-        wires: int,
-        shots: int,
-        extra_kwargs: Optional[dict[str, Any]] = None,
-    ):
-        kwargs = dict(extra_kwargs or {})
-        kwargs.pop("wires", None)
-        kwargs.pop("shots", None)
-        if shots > 0:
-            kwargs["shots"] = shots
-        if name is not None:
-            return qml.device(name, wires=wires, **kwargs)
-        try:
-            return qml.device("lightning.qubit", wires=wires, **kwargs)
-        except Exception:
-            return qml.device("default.qubit", wires=wires, **kwargs)
-
     qubits = int(payload["qubits"])
     shots = int(payload["shots"])
     H = payload["H"]
@@ -446,7 +478,13 @@ def _qsceom_worker_init(payload):
     ansatz_type = str(payload["ansatz_type"])
     device_name = payload["device_name"]
 
-    dev = _make_device(device_name, qubits, shots, device_kwargs)
+    dev = build_qml_device(
+        qml,
+        device_name=device_name,
+        wires=qubits,
+        device_kwargs=payload.get("device_kwargs"),
+        shots=shots,
+    )
 
     def _apply_ansatz_local(params_local, ash_local):
         for i, excitations in enumerate(ash_local):
@@ -523,23 +561,6 @@ def _qsceom_state_worker_init(payload):
     import numpy as np
     import pennylane as qml
 
-    device_kwargs = dict(payload.get("device_kwargs") or {})
-
-    def _make_device(
-        name: Optional[str],
-        wires: int,
-        extra_kwargs: Optional[dict[str, Any]] = None,
-    ):
-        kwargs = dict(extra_kwargs or {})
-        kwargs.pop("wires", None)
-        kwargs.pop("shots", None)
-        if name is not None:
-            return qml.device(name, wires=wires, **kwargs)
-        try:
-            return qml.device("lightning.qubit", wires=wires, **kwargs)
-        except Exception:
-            return qml.device("default.qubit", wires=wires, **kwargs)
-
     qubits = int(payload["qubits"])
     params = payload["params"]
     ash_excitation = payload["ash_excitation"]
@@ -548,7 +569,13 @@ def _qsceom_state_worker_init(payload):
     ansatz_type = str(payload["ansatz_type"])
     device_name = payload["device_name"]
 
-    dev = _make_device(device_name, qubits, device_kwargs)
+    dev = build_qml_device(
+        qml,
+        device_name=device_name,
+        wires=qubits,
+        device_kwargs=payload.get("device_kwargs"),
+        shots=None,
+    )
 
     def _apply_ansatz_local(params_local, ash_local):
         for i, excitations in enumerate(ash_local):
@@ -657,8 +684,8 @@ def qscEOM(
         ``"process"``, ``"thread"``, or ``"auto"`` (default). ``"auto"``
         selects processes on POSIX and threads on Windows.
     max_workers
-        Maximum number of worker threads used when ``parallel_matrix=True``.
-        If omitted, ``os.cpu_count()`` is used.
+        Maximum number of worker processes or threads used when
+        ``parallel_matrix=True``. If omitted, ``os.cpu_count()`` is used.
     matrix_chunk_size
         Number of matrix entries per submitted worker task. If omitted, a
         balanced chunk size based on ``max_workers`` is used.
@@ -776,18 +803,41 @@ def qscEOM(
         else:
             resolved_projector_backend = "dense"
 
+    effective_device_name = device_name
+    if (
+        shots == 0
+        and resolved_projector_backend == "sparse_number_preserving"
+        and is_gpu_device_name(device_name)
+    ):
+        warnings.warn(
+            "qscEOM sparse_number_preserving projector runs on CPU in v1. "
+            f"Falling back from device_name={device_name!r} to 'default.qubit'.",
+            RuntimeWarning,
+        )
+        effective_device_name = "default.qubit"
+
     H = None
     qubits = 2 * int(active_orbitals)
     if shots != 0 or resolved_projector_backend == "dense":
-        H, qubits = qml.qchem.molecular_hamiltonian(
-            symbols,
-            geometry,
-            basis=basis,
-            method=method,
-            active_electrons=active_electrons,
-            active_orbitals=active_orbitals,
-            charge=charge,
-        )
+        if method_normalized == "pyscf":
+            H, qubits, active_electrons, _core_constant, _one_mo, _two_mo = _build_pyscf_active_space_hamiltonian(
+                symbols=symbols,
+                geometry=geometry,
+                basis=basis,
+                charge=charge,
+                active_electrons=active_electrons,
+                active_orbitals=active_orbitals,
+            )
+        else:
+            H, qubits = qml.qchem.molecular_hamiltonian(
+                symbols,
+                geometry,
+                basis=basis,
+                method=method,
+                active_electrons=active_electrons,
+                active_orbitals=active_orbitals,
+                charge=charge,
+            )
         if pauli_grouping and hasattr(H, "compute_grouping"):
             H.compute_grouping(grouping_type=grouping_type)
 
@@ -822,17 +872,13 @@ def qscEOM(
     device_kwargs_local = dict(device_kwargs or {})
 
     def _make_device(name: Optional[str], wires: int):
-        kwargs = dict(device_kwargs_local)
-        kwargs.pop("wires", None)
-        kwargs.pop("shots", None)
-        if shots > 0:
-            kwargs["shots"] = shots
-        if name is not None:
-            return qml.device(name, wires=wires, **kwargs)
-        try:
-            return qml.device("lightning.qubit", wires=wires, **kwargs)
-        except Exception:
-            return qml.device("default.qubit", wires=wires, **kwargs)
+        return build_qml_device(
+            qml,
+            device_name=name,
+            wires=wires,
+            device_kwargs=device_kwargs_local,
+            shots=shots,
+        )
 
     def _to_real_scalar(value):
         """Convert PennyLane/numpy scalar-like values to python float."""
@@ -893,6 +939,12 @@ def qscEOM(
     n_states = len(list1)
     worker_count = _resolve_worker_count(max_workers)
     backend = _resolve_parallel_backend(parallel_backend)
+    worker_count, backend = resolve_gpu_parallelism(
+        device_name=effective_device_name,
+        worker_count=worker_count,
+        parallel_backend=backend,
+        context="qscEOM matrix assembly",
+    )
     brg_details = {
         "brg_applied": False,
         "brg_tolerance": None,
@@ -910,7 +962,7 @@ def qscEOM(
         state_map = {}
 
         def _state_chunk(chunk_indices):
-            local_dev = _make_device(device_name, qubits)
+            local_dev = _make_device(effective_device_name, qubits)
             circuit_state_local = _build_circuit_state(local_dev)
             out = {}
             for idx in chunk_indices:
@@ -942,7 +994,7 @@ def qscEOM(
                         "list1": tuple(tuple(int(v) for v in occ) for occ in list1),
                         "null_state": np.asarray(null_state),
                         "ansatz_type": ansatz_type,
-                        "device_name": device_name,
+                        "device_name": effective_device_name,
                         "device_kwargs": device_kwargs_local,
                     }
                     try:
@@ -1059,7 +1111,7 @@ def qscEOM(
                 "list1": tuple(tuple(int(v) for v in occ) for occ in list1),
                 "null_state": np.asarray(null_state),
                 "ansatz_type": ansatz_type,
-                "device_name": device_name,
+                "device_name": effective_device_name,
                 "device_kwargs": device_kwargs_local,
             }
             try:
@@ -1080,7 +1132,7 @@ def qscEOM(
             executor = ThreadPoolExecutor(max_workers=worker_count)
 
     def _diagonal_chunk(chunk_indices):
-        local_dev = _make_device(device_name, qubits)
+        local_dev = _make_device(effective_device_name, qubits)
         circuit_d_local = _build_circuit_d(local_dev)
         out = {}
         for idx in chunk_indices:
@@ -1089,7 +1141,7 @@ def qscEOM(
         return out
 
     def _off_diagonal_chunk(chunk_pairs, diagonal_values):
-        local_dev = _make_device(device_name, qubits)
+        local_dev = _make_device(effective_device_name, qubits)
         circuit_od_local = _build_circuit_od(local_dev)
         out = {}
         for i, j in chunk_pairs:
@@ -1131,7 +1183,7 @@ def qscEOM(
             for i in diagonal_indices:
                 M[i, i] = diagonal_map[i]
         else:
-            dev = _make_device(device_name, qubits)
+            dev = _make_device(effective_device_name, qubits)
             circuit_d = _build_circuit_d(dev)
             for i in diagonal_indices:
                 M[i, i] = _to_real_scalar(
@@ -1172,7 +1224,7 @@ def qscEOM(
                 if symmetric:
                     M[j, i] = value
         else:
-            dev = _make_device(device_name, qubits)
+            dev = _make_device(effective_device_name, qubits)
             circuit_od = _build_circuit_od(dev)
             if symmetric:
                 for i in range(n_states):

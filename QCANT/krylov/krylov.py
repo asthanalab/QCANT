@@ -8,6 +8,8 @@ from __future__ import annotations
 from typing import Optional, Sequence, Tuple
 import warnings
 
+from .._accelerator import build_qml_device, resolve_array_module, to_host_array
+
 
 def _validate_inputs(
     symbols: Sequence[str],
@@ -61,6 +63,7 @@ def exact_krylov(
     method: str = "pyscf",
     device_name: Optional[str] = None,
     initial_state: Optional["object"] = None,
+    array_backend: str = "auto",
     overlap_tol: float = 1e-10,
     normalize_basis: bool = True,
     basis_threshold: float = 0.0,
@@ -101,6 +104,10 @@ def exact_krylov(
     initial_state
         Optional statevector to seed the Krylov basis. If not provided, the
         Hartree–Fock state is used.
+    array_backend
+        Dense linear algebra backend. ``"numpy"`` keeps CPU execution,
+        ``"cupy"`` requests GPU dense linear algebra, and ``"auto"`` keeps
+        CPU execution unless a GPU PennyLane device is explicitly requested.
     overlap_tol
         Threshold for discarding near-linearly dependent basis vectors when
         orthonormalizing the basis via the overlap matrix eigen-decomposition.
@@ -161,17 +168,13 @@ def exact_krylov(
     # --------------------------------------------------------------------------
     # 2. Device and molecule setup.
     # --------------------------------------------------------------------------
-    def _make_device(name: Optional[str], wires: int):
-        """Create a PennyLane device."""
-        if name is not None:
-            try:
-                return qml.device(name, wires=wires)
-            except Exception:
-                return qml.device("default.qubit", wires=wires)
-        try:
-            return qml.device("lightning.qubit", wires=wires)
-        except Exception:
-            return qml.device("default.qubit", wires=wires)
+    xp, _array_backend_name, _using_gpu = resolve_array_module(
+        array_backend=array_backend,
+        device_name=device_name,
+        allow_gpu=not use_sparse,
+        gpu_fallback_reason="Exact Krylov sparse execution remains CPU-only in v1; set use_sparse=False for GPU runs.",
+        context="exact_krylov",
+    )
 
     atom = [(symbols[i], tuple(float(x) for x in geometry[i])) for i in range(n_atoms)]
     mol = gto.Mole()
@@ -222,16 +225,22 @@ def exact_krylov(
     # --------------------------------------------------------------------------
     if initial_state is None:
         hf_occ = qml.qchem.hf_state(active_electrons, n_qubits)
-        dev = _make_device(device_name, n_qubits)
+        dev = build_qml_device(
+            qml,
+            device_name=device_name,
+            wires=n_qubits,
+            device_kwargs=None,
+            shots=None,
+        )
 
         @qml.qnode(dev)
         def _hf_statevector():
             qml.BasisState(hf_occ, wires=wires)
             return qml.state()
 
-        psi = _hf_statevector()
+        psi = xp.asarray(_hf_statevector(), dtype=complex)
     else:
-        psi = np.asarray(initial_state, dtype=complex)
+        psi = xp.asarray(initial_state, dtype=complex)
         if psi.ndim != 1:
             raise ValueError("initial_state must be a 1D statevector")
         expected_dim = 2**n_qubits
@@ -240,7 +249,7 @@ def exact_krylov(
                 f"initial_state must have length {expected_dim}, got {psi.size}"
             )
 
-    psi_norm = np.linalg.norm(psi)
+    psi_norm = float(to_host_array(xp.linalg.norm(psi)).item())
     if psi_norm == 0:
         raise ValueError("initial_state has zero norm")
     psi = psi / psi_norm
@@ -248,13 +257,13 @@ def exact_krylov(
     def _apply_basis_threshold(state):
         if basis_threshold <= 0:
             return state
-        state = np.asarray(state, dtype=complex)
-        mask = np.abs(state) >= basis_threshold
-        if not np.any(mask):
-            idx = int(np.argmax(np.abs(state)))
+        state = xp.asarray(state, dtype=complex)
+        mask = xp.abs(state) >= basis_threshold
+        if not bool(to_host_array(xp.any(mask)).item()):
+            idx = int(to_host_array(xp.argmax(xp.abs(state))).item())
             mask[idx] = True
-        state = np.where(mask, state, 0.0)
-        norm = np.linalg.norm(state)
+        state = xp.where(mask, state, 0.0)
+        norm = float(to_host_array(xp.linalg.norm(state)).item())
         if norm == 0:
             raise ValueError("thresholded basis vector has zero norm")
         return state / norm
@@ -276,9 +285,9 @@ def exact_krylov(
                 "Hamiltonian does not expose sparse_matrix; falling back to dense matrix.",
                 RuntimeWarning,
             )
-            H_mat = qml.matrix(H, wire_order=wires)
+            H_mat = np.asarray(qml.matrix(H, wire_order=wires), dtype=complex)
     else:
-        H_mat = qml.matrix(H, wire_order=wires)
+        H_mat = xp.asarray(qml.matrix(H, wire_order=wires), dtype=complex)
 
     def _apply_h(state):
         return H_mat @ state
@@ -288,15 +297,15 @@ def exact_krylov(
         S = current_basis_states.conj() @ current_basis_states.T
         H_proj = current_basis_states.conj() @ (H_mat @ current_basis_states.T)
 
-        s_vals, s_vecs = np.linalg.eigh(S)
+        s_vals, s_vecs = xp.linalg.eigh(S)
         keep = s_vals > float(overlap_tol)
-        if not keep.any():
+        if not bool(to_host_array(xp.any(keep)).item()):
             raise ValueError("overlap matrix is numerically singular; basis collapsed")
 
-        X = s_vecs[:, keep] / np.sqrt(s_vals[keep])[None, :]
+        X = s_vecs[:, keep] / xp.sqrt(s_vals[keep])[None, :]
         H_ortho = X.conj().T @ H_proj @ X
-        evals = np.linalg.eigvalsh(H_ortho).real
-        return evals, float(evals[0])
+        evals = xp.linalg.eigvalsh(H_ortho).real
+        return evals, float(to_host_array(evals[0]).item())
 
     if krylov_method == "exact":
         basis_states = [psi]
@@ -304,14 +313,14 @@ def exact_krylov(
         for _ in range(n_steps):
             current = _apply_h(current)
             if normalize_basis:
-                current_norm = np.linalg.norm(current)
+                current_norm = float(to_host_array(xp.linalg.norm(current)).item())
                 if current_norm == 0:
                     raise ValueError("Krylov vector has zero norm")
                 current = current / current_norm
             current = _apply_basis_threshold(current)
             basis_states.append(current)
 
-        basis_states = np.stack(basis_states, axis=0)
+        basis_states = xp.stack(basis_states, axis=0)
         energies, _e0 = _project_min_energy(basis_states)
 
         if return_min_energy_history:
@@ -320,9 +329,13 @@ def exact_krylov(
             for k in range(1, num_steps + 1):
                 _evals, e0 = _project_min_energy(basis_states[: k + 1])
                 min_energy_history.append(e0)
-            return energies, basis_states, np.asarray(min_energy_history, dtype=float)
+            return (
+                to_host_array(energies, dtype=float),
+                to_host_array(basis_states, dtype=complex),
+                np.asarray(min_energy_history, dtype=float),
+            )
 
-        return energies, basis_states
+        return to_host_array(energies, dtype=float), to_host_array(basis_states, dtype=complex)
 
     # --------------------------------------------------------------------------
     # 6. Lanczos iteration.
@@ -341,7 +354,7 @@ def exact_krylov(
         w = w - alpha * v
         if prev is not None:
             w = w - beta * prev
-        beta = np.linalg.norm(w)
+        beta = float(to_host_array(xp.linalg.norm(w)).item())
         alphas.append(alpha)
         if step == n_steps:
             break
@@ -352,21 +365,25 @@ def exact_krylov(
         v = _apply_basis_threshold(v)
         betas.append(beta)
 
-    basis_states = np.stack(basis_states, axis=0)
-    T = np.diag(np.asarray(alphas, dtype=float))
+    basis_states = xp.stack(basis_states, axis=0)
+    T = xp.diag(xp.asarray(alphas, dtype=float))
     if betas:
-        off = np.asarray(betas, dtype=float)
-        T = T + np.diag(off, 1) + np.diag(off, -1)
+        off = xp.asarray(betas, dtype=float)
+        T = T + xp.diag(off, 1) + xp.diag(off, -1)
 
-    energies = np.linalg.eigvalsh(T).real
+    energies = xp.linalg.eigvalsh(T).real
 
     if return_min_energy_history:
         min_energy_history = []
         num_steps = basis_states.shape[0] - 1
         for k in range(1, num_steps + 1):
             sub_T = T[: k + 1, : k + 1]
-            evals = np.linalg.eigvalsh(sub_T).real
-            min_energy_history.append(float(evals[0]))
-        return energies, basis_states, np.asarray(min_energy_history, dtype=float)
+            evals = xp.linalg.eigvalsh(sub_T).real
+            min_energy_history.append(float(to_host_array(evals[0]).item()))
+        return (
+            to_host_array(energies, dtype=float),
+            to_host_array(basis_states, dtype=complex),
+            np.asarray(min_energy_history, dtype=float),
+        )
 
-    return energies, basis_states
+    return to_host_array(energies, dtype=float), to_host_array(basis_states, dtype=complex)

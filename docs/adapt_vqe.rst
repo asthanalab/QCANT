@@ -127,6 +127,14 @@ Notes:
   automatically falls back to thread-based execution.
 - For tuning guidance, see :doc:`parallelization`.
 
+GPU Device
+----------
+
+Use ``device_name="lightning.gpu"`` to request the PennyLane Lightning-GPU
+device. QCANT keeps this path single-GPU safe by avoiding process pools and
+clamping ADAPT commutator workers to one worker when a GPU-backed device is
+selected. CPU behavior is unchanged when ``device_name`` is omitted.
+
 Outputs
 -------
 The function returns ``(params, ash_excitation, energies)``:

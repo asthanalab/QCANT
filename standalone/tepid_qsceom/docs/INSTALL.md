@@ -112,6 +112,24 @@ python -m standalone.tepid_qsceom \
   --output-dir standalone/tepid_qsceom/outputs/my_h4_run
 ```
 
+Generated outputs under `standalone/tepid_qsceom/outputs/` and
+`standalone/tepid_qsceom/examples/outputs/` are ignored by git.
+
+## Optional GPU Dense Arrays
+
+The standalone Python API supports `array_backend="cupy"` for dense GPU linear
+algebra. Install the same GPU stack as QCANT:
+
+```bash
+python -m pip install -e ".[gpu]"
+```
+
+or install the direct dependencies in a standalone environment:
+
+```bash
+python -m pip install pennylane-lightning-gpu "cupy-cuda12x<14"
+```
+
 ## Notes
 
 - This standalone code path is analytic-only.

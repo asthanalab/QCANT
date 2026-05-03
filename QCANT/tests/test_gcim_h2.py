@@ -26,6 +26,7 @@ def test_gcim_h2_runs_and_returns_adapt_style_outputs():
         active_electrons=2,
         active_orbitals=2,
         device_name="default.qubit",
+        device_kwargs={},
         print_progress=False,
     )
 

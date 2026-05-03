@@ -20,6 +20,8 @@ from __future__ import annotations
 
 from typing import Any, Callable, Mapping, Optional, Sequence
 
+from .._accelerator import resolve_array_module, to_host_array
+
 
 _FERMIONIC_POOL_ALIASES = {"fermionic_sd", "sd", "fermionic"}
 _QUBIT_POOL_ALIASES = {"qubit_excitation", "qe", "qubit"}
@@ -232,7 +234,7 @@ def _apply_local_operator_batch(states, op_matrix, target_wires, *, qubits: int,
 
     state_tensor = arr.reshape((2,) * int(qubits) + (batch,))
     permutation = targets + remaining + (int(qubits),)
-    inverse_permutation = tuple(int(idx) for idx in np.argsort(permutation))
+    inverse_permutation = tuple(sorted(range(len(permutation)), key=permutation.__getitem__))
 
     permuted = np.transpose(state_tensor, permutation)
     flat_state = permuted.reshape(2 ** len(targets), -1)
@@ -396,6 +398,7 @@ def tepid_adapt(
     basis_occupations=None,
     pool_sample_size: Optional[int] = None,
     pool_seed: Optional[int] = None,
+    array_backend: str = "auto",
     gradient_eps: float = 1e-7,
     gradient_tol: Optional[float] = None,
     optimizer_method: str = "BFGS",
@@ -454,6 +457,10 @@ def tepid_adapt(
         adaptive iteration.
     pool_seed
         Seed for the operator-pool sampler.
+    array_backend
+        Dense linear algebra backend. ``"numpy"`` keeps CPU execution,
+        ``"cupy"`` requests GPU dense linear algebra, and ``"auto"`` keeps
+        CPU execution unless a GPU backend is explicitly requested.
     gradient_eps
         Finite-difference step used to build candidate gate derivatives at zero.
     gradient_tol
@@ -518,6 +525,13 @@ def tepid_adapt(
             "tepid_adapt requires dependencies. Install at least: "
             "`pip install numpy scipy pennylane pyscf`."
         ) from exc
+
+    xp, array_backend_name, using_gpu = resolve_array_module(
+        array_backend=array_backend,
+        device_name=None,
+        allow_gpu=True,
+        context="tepid_adapt",
+    )
 
     beta_value = float(beta) if beta is not None else 1.0 / float(temperature)
     temperature_value = 1.0 / beta_value
@@ -612,8 +626,9 @@ def tepid_adapt(
     if len(basis_occ) == 0:
         raise ValueError("truncated TEPID basis is empty after include_identity filtering.")
 
-    H_sparse = H.sparse_matrix(wire_order=range(qubits), format="csr")
-    basis_columns = _build_basis_columns(basis_occ, qubits=qubits, np=np)
+    H_dense = xp.asarray(qml.matrix(H, wire_order=range(qubits)), dtype=complex) if using_gpu else None
+    H_sparse = None if using_gpu else H.sparse_matrix(wire_order=range(qubits), format="csr")
+    basis_columns = _build_basis_columns(basis_occ, qubits=qubits, np=xp)
 
     pool_excitations = _build_operator_pool(
         qml,
@@ -626,7 +641,7 @@ def tepid_adapt(
         pool_excitations,
         ansatz_type=ansatz_type,
         gradient_eps=float(gradient_eps),
-        np=np,
+        np=xp,
     )
 
     free_energies = []
@@ -643,19 +658,19 @@ def tepid_adapt(
             ansatz_type=ansatz_type,
             qubits=qubits,
             qml=qml,
-            np=np,
+            np=xp,
         )
-        h_states = H_sparse @ states
-        basis_energies = np.real(np.sum(np.conj(states) * h_states, axis=0))
+        h_states = (H_dense @ states) if using_gpu else (H_sparse @ states)
+        basis_energies = xp.real(xp.sum(xp.conj(states) * h_states, axis=0))
         weights, entropy, free_energy, log_partition = _thermal_summary(
             basis_energies,
             beta=beta_value,
-            np=np,
+            np=xp,
         )
         return {
-            "states": np.asarray(states, dtype=complex),
-            "basis_energies": np.asarray(basis_energies, dtype=float),
-            "thermal_weights": np.asarray(weights, dtype=float),
+            "states": xp.asarray(states, dtype=complex),
+            "basis_energies": xp.asarray(basis_energies, dtype=float),
+            "thermal_weights": xp.asarray(weights, dtype=float),
             "entropy": float(entropy),
             "free_energy": float(free_energy),
             "log_partition": float(log_partition),
@@ -689,14 +704,16 @@ def tepid_adapt(
                 meta["derivative"],
                 meta["target_wires"],
                 qubits=qubits,
-                np=np,
+                np=xp,
             )
-            hd_states = H_sparse @ d_states
-            deriv_energies = 2.0 * np.real(
-                np.sum(np.conj(current_snapshot["states"]) * hd_states, axis=0)
+            hd_states = (H_dense @ d_states) if using_gpu else (H_sparse @ d_states)
+            deriv_energies = 2.0 * xp.real(
+                xp.sum(xp.conj(current_snapshot["states"]) * hd_states, axis=0)
             )
             weighted_gradient = float(
-                np.dot(current_snapshot["thermal_weights"], np.asarray(deriv_energies, dtype=float))
+                to_host_array(
+                    xp.dot(current_snapshot["thermal_weights"], xp.asarray(deriv_energies, dtype=float))
+                ).item()
             )
             score = abs(weighted_gradient)
             if score > max_score:
@@ -726,7 +743,9 @@ def tepid_adapt(
         current_snapshot = _evaluate_snapshot(params, ash_excitation)
         free_energies.append(float(current_snapshot["free_energy"]))
 
-        energy_order = np.argsort(current_snapshot["basis_energies"], kind="stable")
+        basis_energies_host = to_host_array(current_snapshot["basis_energies"], dtype=float)
+        thermal_weights_host = to_host_array(current_snapshot["thermal_weights"], dtype=float)
+        energy_order = np.argsort(basis_energies_host, kind="stable")
         iteration_snapshot = {
             "iteration": int(iteration + 1),
             "selected_pool_index": int(max_operator_index),
@@ -736,14 +755,10 @@ def tepid_adapt(
             "free_energy": float(current_snapshot["free_energy"]),
             "entropy": float(current_snapshot["entropy"]),
             "log_partition": float(current_snapshot["log_partition"]),
-            "basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float).copy(),
-            "thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float).copy(),
-            "sorted_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float)[
-                energy_order
-            ].copy(),
-            "sorted_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float)[
-                energy_order
-            ].copy(),
+            "basis_energies": basis_energies_host.copy(),
+            "thermal_weights": thermal_weights_host.copy(),
+            "sorted_basis_energies": basis_energies_host[energy_order].copy(),
+            "sorted_thermal_weights": thermal_weights_host[energy_order].copy(),
             "params": np.asarray(params, dtype=float).copy(),
             "ash_excitation": [[int(v) for v in excitation] for excitation in ash_excitation],
             "optimizer_success": bool(result.success),
@@ -757,10 +772,15 @@ def tepid_adapt(
         if iteration_callback is not None:
             iteration_callback(iteration_snapshot)
 
-    final_order = np.argsort(current_snapshot["basis_energies"], kind="stable")
+    initial_basis_energies = to_host_array(initial_snapshot["basis_energies"], dtype=float)
+    initial_thermal_weights = to_host_array(initial_snapshot["thermal_weights"], dtype=float)
+    final_basis_energies = to_host_array(current_snapshot["basis_energies"], dtype=float)
+    final_thermal_weights = to_host_array(current_snapshot["thermal_weights"], dtype=float)
+    final_order = np.argsort(final_basis_energies, kind="stable")
     details = {
         "beta": float(beta_value),
         "temperature": float(temperature_value),
+        "array_backend": str(array_backend_name),
         "basis_occupations": [[int(v) for v in occ] for occ in basis_occ],
         "hf_occupation": [int(v) for v in hf_occ],
         "include_identity": bool(include_identity),
@@ -768,20 +788,16 @@ def tepid_adapt(
         "ansatz_type": ansatz_type,
         "initial_free_energy": float(initial_snapshot["free_energy"]),
         "initial_entropy": float(initial_snapshot["entropy"]),
-        "initial_basis_energies": np.asarray(initial_snapshot["basis_energies"], dtype=float).copy(),
-        "initial_thermal_weights": np.asarray(initial_snapshot["thermal_weights"], dtype=float).copy(),
+        "initial_basis_energies": initial_basis_energies.copy(),
+        "initial_thermal_weights": initial_thermal_weights.copy(),
         "final_free_energy": float(current_snapshot["free_energy"]),
         "final_entropy": float(current_snapshot["entropy"]),
         "final_log_partition": float(current_snapshot["log_partition"]),
-        "final_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float).copy(),
-        "final_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float).copy(),
-        "sorted_basis_energies": np.asarray(current_snapshot["basis_energies"], dtype=float)[
-            final_order
-        ].copy(),
+        "final_basis_energies": final_basis_energies.copy(),
+        "final_thermal_weights": final_thermal_weights.copy(),
+        "sorted_basis_energies": final_basis_energies[final_order].copy(),
         "sorted_basis_occupations": [basis_occ[int(idx)] for idx in final_order],
-        "sorted_thermal_weights": np.asarray(current_snapshot["thermal_weights"], dtype=float)[
-            final_order
-        ].copy(),
+        "sorted_thermal_weights": final_thermal_weights[final_order].copy(),
         "history": history,
     }
 

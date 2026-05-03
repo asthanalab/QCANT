@@ -89,6 +89,7 @@ celerybeat-schedule
 venv/
 ENV/
 .conda_pkgs/
+.bench-deps*/
 
 # Spyder project settings
 .spyderproject
@@ -125,5 +126,15 @@ ENV/
 # Cookiecutter-CMS Test Artifacts
 /tests/CI_files
 
-# Local examples (do not track)
-/examples/
+# Generated example and workflow outputs
+examples/outputs/
+standalone/tepid_qsceom/outputs/
+standalone/tepid_qsceom/examples/outputs/
+standalone/tepid_qsceom/configs/standalone/
+
+# Generated benchmark runs; keep curated artifacts under benchmarks/reference/
+benchmarks/gpu_speedups_*/
+benchmarks/hchain_gpu_capability_*/
+benchmarks/hchain_sector_gpu_capability_*/
+benchmarks/hchain_hybrid_capability_*/
+benchmarks/h8_sector_projection_*/

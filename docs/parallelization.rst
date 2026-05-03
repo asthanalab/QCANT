@@ -75,6 +75,11 @@ Backend Selection
 If process pools cannot be created (restricted environment), QCANT falls back
 to thread backend automatically.
 
+On GPU-backed PennyLane devices, QCANT keeps the run single-GPU safe by:
+
+- downgrading ``parallel_backend="process"`` to thread mode
+- clamping ``max_workers`` to ``1``
+
 Tuning Parameters
 -----------------
 
@@ -113,6 +118,32 @@ Outputs:
 
 - ``benchmark_parallel_adapt_qsceom.csv``
 - ``benchmark_parallel_adapt_qsceom_speedup.png``
+
+QCANT also includes a CPU-vs-GPU benchmark script for the opt-in GPU paths:
+
+.. code-block:: bash
+
+   python scripts/benchmark_gpu_speedups.py --profile h6 --repeats 2 --outdir benchmarks/gpubenchmark
+   python scripts/benchmark_gpu_speedups.py --profile small --repeats 2 --outdir benchmarks/gpu_speedups_small
+
+GPU benchmark outputs:
+
+- ``h6_speedups.csv``
+- ``h6_speedup_summary.png``
+- ``h6_runtime_summary.png``
+- ``plots/<algorithm>_speedup.png``
+
+Rows labeled ``qulacs_cpu`` are CPU accelerator measurements, not GPU
+measurements.
+
+For H-chain capability sweeps that separate CPU chemistry setup from the GPU
+linear-algebra hot loop:
+
+.. code-block:: bash
+
+   python scripts/benchmark_hchain_gpu_capability.py --atoms 4 6 8 10
+   python scripts/benchmark_hchain_sector_gpu_capability.py --atoms 6 8 10
+   python scripts/benchmark_hchain_hybrid_capability.py --atoms 6
 
 Notes
 -----

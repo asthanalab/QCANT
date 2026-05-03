@@ -13,8 +13,10 @@ resulting non-orthogonal basis.
 
 from __future__ import annotations
 
-from typing import Optional, Sequence, Tuple
+from typing import Mapping, Optional, Sequence, Tuple
 import warnings
+
+from .._accelerator import build_qml_device
 
 
 def qrte(
@@ -30,6 +32,7 @@ def qrte(
     spin: int = 0,
     method: str = "pyscf",
     device_name: Optional[str] = None,
+    device_kwargs: Optional[Mapping[str, object]] = None,
     trotter_steps: int = 1,
     overlap_tol: float = 1e-10,
     use_sparse: bool = False,
@@ -71,6 +74,8 @@ def qrte(
     device_name
         PennyLane device name (e.g. ``"default.qubit"``). If not provided,
         the function will prefer ``"lightning.qubit"`` if available.
+    device_kwargs
+        Optional keyword arguments forwarded to ``qml.device``.
     trotter_steps
         Number of Trotter steps used internally by :class:`pennylane.ApproxTimeEvolution`.
     overlap_tol
@@ -162,17 +167,14 @@ def qrte(
     # --------------------------------------------------------------------------
     def _make_device(name: Optional[str], wires: int, *, force_default: bool):
         """Create a PennyLane device."""
-        if force_default:
-            return qml.device("default.qubit", wires=wires)
-        if name is not None:
-            try:
-                return qml.device(name, wires=wires)
-            except Exception:
-                return qml.device("default.qubit", wires=wires)
-        try:
-            return qml.device("lightning.qubit", wires=wires)
-        except Exception:
-            return qml.device("default.qubit", wires=wires)
+        return build_qml_device(
+            qml,
+            device_name=name,
+            wires=wires,
+            device_kwargs=device_kwargs,
+            shots=None,
+            force_default=force_default,
+        )
 
     atom = [(symbols[i], tuple(float(x) for x in geometry[i])) for i in range(n_atoms)]
     mol = gto.Mole()
@@ -338,6 +340,7 @@ def qrte_pmte(
     spin: int = 0,
     method: str = "pyscf",
     device_name: Optional[str] = None,
+    device_kwargs: Optional[Mapping[str, object]] = None,
     trotter_steps: int = 1,
     overlap_tol: float = 1e-10,
     use_sparse: bool = False,
@@ -388,6 +391,8 @@ def qrte_pmte(
     device_name
         PennyLane device name (e.g. ``"default.qubit"``). If not provided,
         the function will prefer ``"lightning.qubit"`` if available.
+    device_kwargs
+        Optional keyword arguments forwarded to ``qml.device``.
     trotter_steps
         Number of Trotter steps used internally by :class:`pennylane.ApproxTimeEvolution`.
     overlap_tol
@@ -461,17 +466,14 @@ def qrte_pmte(
     # --------------------------------------------------------------------------
     def _make_device(name: Optional[str], wires: int, *, force_default: bool):
         """Create a PennyLane device."""
-        if force_default:
-            return qml.device("default.qubit", wires=wires)
-        if name is not None:
-            try:
-                return qml.device(name, wires=wires)
-            except Exception:
-                return qml.device("default.qubit", wires=wires)
-        try:
-            return qml.device("lightning.qubit", wires=wires)
-        except Exception:
-            return qml.device("default.qubit", wires=wires)
+        return build_qml_device(
+            qml,
+            device_name=name,
+            wires=wires,
+            device_kwargs=device_kwargs,
+            shots=None,
+            force_default=force_default,
+        )
 
     atom = [(symbols[i], tuple(float(x) for x in geometry[i])) for i in range(n_atoms)]
     mol = gto.Mole()

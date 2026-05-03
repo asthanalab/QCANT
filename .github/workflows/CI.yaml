@@ -4,8 +4,6 @@ permissions:
   contents: read
 
 on:
-  # GitHub has started calling new repo's first branch "main" https://github.com/github/renaming
-  # The cookiecutter uses the "--initial-branch" flag when it runs git-init
   push:
     branches:
       - "main"
@@ -61,6 +59,20 @@ jobs:
         run: |
           conda activate qcant
           pytest -v --cov=QCANT --cov-report=xml --color=yes QCANT/tests/
+
+      - name: Compile source and smoke examples
+        shell: bash -l {0}
+        run: |
+          conda activate qcant
+          python -m compileall -q QCANT standalone scripts examples
+          python examples/run_qsceom_h2.py --projector-backend dense --output-dir /tmp/qcant-example-qsceom
+          python examples/run_qkud_h2.py --output-dir /tmp/qcant-example-qkud
+
+      - name: Build docs
+        shell: bash -l {0}
+        run: |
+          conda activate qcant
+          sphinx-build -b html docs docs/_build/html
 
       - name: CodeCov
         uses: codecov/codecov-action@v5

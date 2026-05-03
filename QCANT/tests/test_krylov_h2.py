@@ -18,6 +18,7 @@ def test_exact_krylov_generates_basis_h2_sto3g():
         basis="sto-3g",
         charge=0,
         spin=0,
+        array_backend="numpy",
         return_min_energy_history=True,
     )
 

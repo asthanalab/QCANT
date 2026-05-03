@@ -24,6 +24,9 @@ Reads a standalone ansatz JSON file and reconstructs:
 
 Runs standalone ancilla-free TEPID-ADAPT.
 
+Accepts `array_backend="auto"|"numpy"|"cupy"`. The default preserves CPU
+behavior; `"cupy"` requests GPU dense linear algebra after CPU chemistry setup.
+
 Returns:
 
 - `params`
@@ -45,9 +48,13 @@ Returns:
 - qscEOM eigenvalues
 - optional projected-matrix details
 
+Accepts the same `array_backend` choices as `tepid_adapt`.
+
 ## `tepid_qsceom(...)`
 
 Runs TEPID first, then qscEOM on the resulting ansatz.
+
+The selected `array_backend` is propagated through both stages.
 
 Returns a dictionary with:
 

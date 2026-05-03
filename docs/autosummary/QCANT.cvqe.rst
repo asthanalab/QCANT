@@ -1,5 +1,5 @@
 ﻿QCANT.cvqe
-===========
+==========
 
 .. currentmodule:: QCANT
 

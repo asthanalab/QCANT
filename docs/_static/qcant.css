@@ -1,0 +1,24 @@
+.bd-main .bd-content .bd-article-container {
+  max-width: 980px;
+}
+
+.qcant-hero {
+  padding: 1.4rem 1.6rem;
+  border-radius: 1rem;
+  background:
+    radial-gradient(circle at top left, rgba(32, 131, 149, 0.22), transparent 32%),
+    linear-gradient(135deg, rgba(14, 48, 69, 0.96), rgba(18, 84, 87, 0.92));
+  color: #f7fbfa;
+  box-shadow: 0 18px 55px rgba(11, 48, 60, 0.18);
+}
+
+.qcant-hero p {
+  font-size: 1.04rem;
+  margin-bottom: 0;
+}
+
+.qcant-callout {
+  border-left: 0.25rem solid #237a84;
+  padding: 0.8rem 1rem;
+  background: rgba(35, 122, 132, 0.08);
+}

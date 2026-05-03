@@ -1,7 +1,7 @@
 GCIM (Generalized Configuration Interaction Method)
 ===================================================
 
-QCANT provides GCIM via :func:`QCANT.gcim.gcim`.
+QCANT provides GCIM via :func:`QCANT.gcim`.
 
 What it does
 ------------
@@ -58,6 +58,8 @@ Key options
 - ``regularization``: overlap-matrix diagonal regularization before solving
   ``M c = S c E``.
 - ``return_details``: return debug artifacts (state basis, projected matrices).
+- ``device_name`` and ``device_kwargs``: select a PennyLane device such as
+  ``"default.qubit"`` or the opt-in GPU device ``"lightning.gpu"``.
 
 Iteration policy
 ----------------

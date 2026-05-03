@@ -20,6 +20,8 @@ import json
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
+from .._accelerator import resolve_array_module, to_host_array, to_plain_data as _plain_data
+
 
 def _validate_inputs(
     symbols: Sequence[str],
@@ -569,15 +571,8 @@ def _select_new_determinant(
 
 def _to_plain_data(value, np):
     """Convert NumPy-heavy nested data into JSON-serializable Python objects."""
-    if isinstance(value, dict):
-        return {str(key): _to_plain_data(item, np) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_to_plain_data(item, np) for item in value]
-    if isinstance(value, np.ndarray):
-        return value.tolist()
-    if isinstance(value, np.generic):
-        return value.item()
-    return value
+    del np
+    return _plain_data(value)
 
 
 def _restore_history(history_payload, np):
@@ -629,6 +624,7 @@ def cvqe(
     selection_method: str = "probability",
     selection_topk: int = 10,
     selection_seed: Optional[int] = None,
+    array_backend: str = "auto",
     print_progress: bool = True,
     return_details: bool = False,
     resume_state: Optional[dict[str, object]] = None,
@@ -678,6 +674,10 @@ def cvqe(
         ``"pt2"`` selector at each CVQE iteration.
     selection_seed
         RNG seed for shot-based determinant selection.
+    array_backend
+        Dense linear algebra backend. ``"numpy"`` keeps CPU execution,
+        ``"cupy"`` requests GPU dense linear algebra, and ``"auto"`` keeps
+        CPU execution unless a GPU backend is explicitly requested.
     print_progress
         If True, print iteration and energy updates.
     return_details
@@ -736,6 +736,13 @@ def cvqe(
             "`pip install numpy scipy pennylane pyscf`."
         ) from exc
 
+    xp, array_backend_name, _using_gpu = resolve_array_module(
+        array_backend=array_backend,
+        device_name=None,
+        allow_gpu=True,
+        context="cvqe",
+    )
+
     atom = [(symbols[i], tuple(float(x) for x in geometry[i])) for i in range(n_atoms)]
     mol_ref = gto.Mole()
     mol_ref.atom = atom
@@ -784,17 +791,19 @@ def cvqe(
 
     qubits = 2 * ncas
     wires = tuple(range(qubits))
-    h_matrix = np.asarray(qml.matrix(h_qubit, wire_order=wires), dtype=complex)
+    h_matrix = xp.asarray(qml.matrix(h_qubit, wire_order=wires), dtype=complex)
+    h_matrix_host = to_host_array(h_matrix, dtype=complex)
 
     hf_bits = np.asarray(qml.qchem.hf_state(active_electrons, qubits), dtype=int)
     hf_bits_list = [int(bit) for bit in hf_bits]
     hf_index = _bits_to_index(hf_bits_list)
-    occupancy_table = np.asarray(
+    occupancy_table_host = np.asarray(
         [_index_to_bits(index, qubits) for index in range(2**qubits)],
         dtype=float,
     )
+    occupancy_table = xp.asarray(occupancy_table_host, dtype=float)
     fixed_electron_indices = np.where(
-        np.sum(occupancy_table, axis=1).astype(int) == int(active_electrons)
+        np.sum(occupancy_table_host, axis=1).astype(int) == int(active_electrons)
     )[0]
 
     t1_active, t2_active = _extract_active_ccsd_amplitudes(
@@ -869,7 +878,7 @@ def cvqe(
             added_determinants,
             det_coeffs,
             qubits=qubits,
-            np=np,
+            np=xp,
         )
         if ansatz == "lucj":
             orbital_params, same_params, opposite_params = ansatz_payload
@@ -881,7 +890,7 @@ def cvqe(
                 qubits=qubits,
                 occupancy_table=occupancy_table,
                 qml=qml,
-                np=np,
+                np=xp,
             )
         else:
             state = _apply_uccsd(
@@ -890,9 +899,9 @@ def cvqe(
                 uccsd_metadata,
                 qubits=qubits,
                 qml=qml,
-                np=np,
+                np=xp,
             )
-        norm = np.linalg.norm(state)
+        norm = float(to_host_array(xp.linalg.norm(state)).item())
         if norm < 1e-14:
             raise ValueError("trial state became numerically zero")
         return state / norm
@@ -903,7 +912,7 @@ def cvqe(
             n_det_params=len(added_determinants),
         )
         state = _state_from_blocks(det_coeffs, ansatz_payload)
-        return float(np.real(state.conj().T @ (h_matrix @ state)))
+        return float(to_host_array((state.conj().T @ (h_matrix @ state)).real).item())
 
     def _parameter_slices_for_count(n_det_params: int) -> dict[str, tuple[int, int]]:
         if ansatz == "lucj":
@@ -919,6 +928,7 @@ def cvqe(
     def _build_details_payload(*, plain: bool):
         details = {
             "ansatz": str(ansatz),
+            "array_backend": str(array_backend_name),
             "initial_energy": float(initial_energy),
             "hf_determinant": [int(bit) for bit in hf_bits_list],
             "reference_determinants": [[int(bit) for bit in hf_bits_list]]
@@ -955,6 +965,7 @@ def cvqe(
                 "selection_method": str(selection_method),
                 "selection_topk": int(selection_topk),
                 "selection_seed": None if selection_seed is None else int(selection_seed),
+                "array_backend": str(array_backend_name),
             },
             "ansatz": str(ansatz),
             "completed_iterations": int(len(energies)),
@@ -977,7 +988,7 @@ def cvqe(
         current_det_coeffs,
         current_ansatz_payload,
     )
-    initial_energy = float(np.real(current_state.conj().T @ (h_matrix @ current_state)))
+    initial_energy = float(to_host_array((current_state.conj().T @ (h_matrix @ current_state)).real).item())
 
     if resume_state is not None:
         resume_details = dict(resume_state.get("details", {}))
@@ -1063,8 +1074,9 @@ def cvqe(
             )
 
     for iteration in range(len(energies), int(adapt_it)):
-        probabilities = np.abs(current_state) ** 2
-        current_energy = float(np.real(current_state.conj().T @ (h_matrix @ current_state)))
+        current_state_host = to_host_array(current_state, dtype=complex)
+        probabilities = np.abs(current_state_host) ** 2
+        current_energy = float(to_host_array((current_state.conj().T @ (h_matrix @ current_state)).real).item())
         selected_index, selected_metric, selected_exact_prob, counts, selection_details = _select_new_determinant(
             probabilities,
             selected_indices,
@@ -1072,9 +1084,9 @@ def cvqe(
             shots=shots,
             selection_method=selection_method,
             selection_topk=selection_topk,
-            current_state=current_state,
+            current_state=current_state_host,
             current_energy=current_energy,
-            h_matrix=h_matrix,
+            h_matrix=h_matrix_host,
             rng=rng,
             np=np,
         )
@@ -1088,7 +1100,7 @@ def cvqe(
         added_determinants.append(selected_bits)
         selected_indices.add(int(selected_index))
 
-        selected_amplitude = complex(current_state[int(selected_index)])
+        selected_amplitude = complex(current_state_host[int(selected_index)])
         amplitude_guess = float(np.real(selected_amplitude))
         if abs(amplitude_guess) < 1e-8:
             sign = -1.0 if np.real(selected_amplitude) < 0 else 1.0

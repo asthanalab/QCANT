@@ -20,6 +20,7 @@ def test_qrte_generates_basis_h2_sto3g():
         charge=0,
         spin=0,
         device_name="default.qubit",
+        device_kwargs={},
         trotter_steps=1,
     )
     assert basis_states.shape[0] == 3
@@ -59,6 +60,7 @@ def test_qrte_pmte_generates_symmetric_basis_h2_sto3g():
         charge=0,
         spin=0,
         device_name="default.qubit",
+        device_kwargs={},
         trotter_steps=1,
     )
     assert basis_states.shape[0] == 5  # 1 + 2*n_steps

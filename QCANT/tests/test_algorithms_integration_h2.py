@@ -128,11 +128,13 @@ def test_tepid_adapt_output_runs_qsceom_h2_sto3g():
         active_electrons=2,
         active_orbitals=2,
         optimizer_maxiter=25,
+        array_backend="numpy",
         return_details=True,
     )
 
     assert len(free_energies) == 1
     assert len(params) == len(ash_excitation) == 1
+    assert details["array_backend"] == "numpy"
     assert details["final_basis_energies"].size == 4
     assert np.isclose(np.sum(details["final_thermal_weights"]), 1.0)
 

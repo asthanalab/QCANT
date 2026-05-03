@@ -1,18 +1,18 @@
-"""Core public API for QCANT.
+"""Small compatibility helpers re-exported by :mod:`QCANT`.
 
-At the moment QCANT is a small, template-derived package with a minimal API.
-The intent is for project-specific functionality to live in dedicated modules
-and be re-exported via :mod:`QCANT`.
+The scientific workflows live in dedicated subpackages and are imported from
+the package root. ``canvas`` is kept as a lightweight import smoke test for
+existing users and tests.
 """
 
 from __future__ import annotations
 
 
 def canvas(with_attribution: bool = True) -> str:
-    """Return a short quote used as a template smoke-test.
+    """Return a short quote used as an import smoke test.
 
-    This function is intentionally simple and exists primarily to verify that
-    the package imports correctly and that the documentation build is wired up.
+    This function is intentionally simple and remains part of the public API for
+    backward compatibility with early QCANT releases.
 
     Parameters
     ----------
@@ -34,4 +34,3 @@ def canvas(with_attribution: bool = True) -> str:
 if __name__ == "__main__":
     # Do something if this file is invoked on its own
     print(canvas())
-

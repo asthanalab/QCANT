@@ -20,6 +20,8 @@ This generates three example output folders under:
 
 `standalone/tepid_qsceom/examples/outputs/h4_3p0A_examples`
 
+The output directory is generated at runtime and ignored by git.
+
 - `tepid`
 - `qsceom`
 - `tepid_qsceom`

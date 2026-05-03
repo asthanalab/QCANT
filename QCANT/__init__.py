@@ -1,12 +1,9 @@
-"""QCANT: quantum computing utilities (chemistry/materials science).
+"""QCANT public API.
 
-This package is currently a lightweight scaffold created from the MolSSI
-cookiecutter template. The public API is intentionally small and stable.
-
-Public API
-----------
-- :func:`QCANT.canvas` – small example function used by the template.
-- :data:`QCANT.__version__` – package version string.
+QCANT collects active-space quantum chemistry workflows, projected-spectrum
+methods, Krylov dynamics, finite-temperature routines, and optional accelerator
+paths behind package-level imports. CPU execution remains the default; GPU and
+Qulacs accelerators are explicitly selected by users.
 """
 
 from .QCANT import canvas

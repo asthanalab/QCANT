@@ -10,6 +10,9 @@ simulator-heavy algorithms:
 - :func:`QCANT.adapt_vqe_qulacs`
 - :func:`QCANT.cvqe_qulacs`
 
+These Qulacs entry points remain CPU-only in the current GPU acceleration
+pass. They reduce simulator overhead on CPU nodes; they are not the GPU path.
+
 Installation
 ------------
 

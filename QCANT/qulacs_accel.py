@@ -1895,6 +1895,8 @@ def cvqe_qulacs(
     optimizer_method: str = "BFGS",
     optimizer_maxiter: int = 100,
     hamiltonian_cutoff: float = 1e-20,
+    selection_method: str = "probability",
+    selection_topk: int = 10,
     selection_seed: Optional[int] = None,
     print_progress: bool = True,
     return_details: bool = False,
@@ -1911,7 +1913,11 @@ def cvqe_qulacs(
         active_electrons=active_electrons,
         active_orbitals=active_orbitals,
         spin=spin,
+        selection_topk=selection_topk,
     )
+    selection_method = str(selection_method).strip().lower()
+    if selection_method != "probability":
+        raise ValueError("cvqe_qulacs currently supports only selection_method='probability'")
     ansatz = str(ansatz).strip().lower()
     if ansatz not in {"lucj", "uccsd"}:
         raise ValueError("ansatz must be one of {'lucj', 'uccsd'}")
@@ -2149,6 +2155,8 @@ def cvqe_qulacs(
                 "optimizer_method": str(optimizer_method),
                 "optimizer_maxiter": int(optimizer_maxiter),
                 "hamiltonian_cutoff": float(hamiltonian_cutoff),
+                "selection_method": str(selection_method),
+                "selection_topk": int(selection_topk),
                 "selection_seed": None if selection_seed is None else int(selection_seed),
                 "backend": "qulacs",
             },
@@ -2215,11 +2223,16 @@ def cvqe_qulacs(
 
     for iteration in range(len(energies), int(adapt_it)):
         probabilities = np.abs(np.asarray(current_state.get_vector(), dtype=complex)) ** 2
-        selected_index, selected_metric, selected_exact_prob, counts = _select_new_determinant(
+        selected_index, selected_metric, selected_exact_prob, counts, selection_details = _select_new_determinant(
             probabilities,
             selected_indices,
             candidate_indices=fixed_electron_indices,
             shots=shots,
+            selection_method=selection_method,
+            selection_topk=selection_topk,
+            current_state=np.asarray(current_state.get_vector(), dtype=complex),
+            current_energy=float(energies[-1] if energies else initial_energy),
+            h_matrix=None,
             rng=rng,
             np=np,
         )
@@ -2266,6 +2279,8 @@ def cvqe_qulacs(
             "selected_determinant": [int(bit) for bit in selected_bits],
             "selected_index": int(selected_index),
             "selection_mode": "exact" if shots is None or int(shots) == 0 else "sampled",
+            "selection_strategy": str(selection_method),
+            "selection_topk": int(selection_topk),
             "selection_shots": int(0 if shots is None else shots),
             "selection_metric": float(selected_metric),
             "selected_exact_probability": float(selected_exact_prob),
@@ -2279,6 +2294,7 @@ def cvqe_qulacs(
             "reference_amplitudes": np.asarray(current_reference_amplitudes, dtype=float).copy(),
             "sample_counts": None if counts is None else np.asarray(counts, dtype=int),
         }
+        entry.update(selection_details)
         if ansatz == "lucj":
             orbital_angles, same_spin, opposite_spin = _ansatz_values_to_payload(current_ansatz_values)
             entry.update(

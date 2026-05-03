@@ -106,6 +106,8 @@ Options
 - ``use_sparse``: use a sparse Hamiltonian representation for projections.
 - ``basis_threshold``: drop amplitudes below this threshold after each basis update and
   re-normalize the state (use 0.0 to disable).
+- ``device_kwargs``: optional PennyLane device constructor options, used for
+  CPU or GPU devices.
 
 Outputs
 -------
@@ -131,6 +133,8 @@ Notes
 
 - This implementation uses analytic statevector access (``qml.state()``).
 - The returned basis is generally not orthonormal.
+- Use ``device_name="lightning.gpu"`` to request the PennyLane GPU device.
+  PySCF chemistry setup remains CPU-bound.
 
 Comparison script
 -----------------

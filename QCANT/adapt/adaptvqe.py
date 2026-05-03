@@ -17,6 +17,8 @@ import os
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
 from typing import Any, Callable, Mapping, Optional, Sequence
 
+from .._accelerator import build_qml_device, resolve_gpu_parallelism
+
 
 _FERMIONIC_POOL_ALIASES = {"fermionic_sd", "sd", "fermionic"}
 _QUBIT_POOL_ALIASES = {"qubit_excitation", "qe", "qubit"}
@@ -241,26 +243,6 @@ def _adapt_worker_init(payload):
     import numpy as np
     import pennylane as qml
 
-    device_kwargs = dict(payload.get("device_kwargs") or {})
-
-    def _make_device(
-        name: Optional[str],
-        wires: int,
-        device_shots: Optional[int],
-        extra_kwargs: Optional[dict[str, Any]] = None,
-    ):
-        kwargs = dict(extra_kwargs or {})
-        kwargs.pop("wires", None)
-        kwargs.pop("shots", None)
-        if device_shots is not None and device_shots > 0:
-            kwargs["shots"] = device_shots
-        if name is not None:
-            return qml.device(name, wires=wires, **kwargs)
-        try:
-            return qml.device("lightning.qubit", wires=wires, **kwargs)
-        except Exception:
-            return qml.device("default.qubit", wires=wires, **kwargs)
-
     qubits = int(payload["qubits"])
     hf_state = payload["hf_state"]
     commutator_pool_ops = payload["commutator_pool_ops"]
@@ -279,7 +261,13 @@ def _adapt_worker_init(payload):
     comm_from_state = None
 
     if commutator_mode == "statevec" or commutator_debug:
-        dev_state = _make_device(device_name, qubits, None, device_kwargs)
+        dev_state = build_qml_device(
+            qml,
+            device_name=device_name,
+            wires=qubits,
+            device_kwargs=payload.get("device_kwargs"),
+            shots=None,
+        )
 
         @qml.qnode(dev_state)
         def comm_from_state(state, comm_op_local):
@@ -287,7 +275,13 @@ def _adapt_worker_init(payload):
             return qml.expval(comm_op_local)
 
     if commutator_mode == "ansatz" or commutator_debug:
-        dev_ansatz = _make_device(device_name, qubits, comm_shots, device_kwargs)
+        dev_ansatz = build_qml_device(
+            qml,
+            device_name=device_name,
+            wires=qubits,
+            device_kwargs=payload.get("device_kwargs"),
+            shots=comm_shots,
+        )
 
         @qml.qnode(dev_ansatz)
         def comm_from_ansatz(params_local, ash_local, hf_state_local, comm_op_local):
@@ -433,8 +427,8 @@ def adapt_vqe(
         ``"process"``, ``"thread"``, or ``"auto"`` (default). ``"auto"``
         selects processes on POSIX and threads on Windows.
     max_workers
-        Maximum number of worker threads used when ``parallel_gradients=True``.
-        If omitted, ``os.cpu_count()`` is used.
+        Maximum number of worker processes or threads used when
+        ``parallel_gradients=True``. If omitted, ``os.cpu_count()`` is used.
     gradient_chunk_size
         Number of candidate operators per submitted worker task. If omitted, a
         balanced chunk size based on ``max_workers`` is used.
@@ -521,25 +515,15 @@ def adapt_vqe(
     # --------------------------------------------------------------------------
     device_kwargs_local = dict(device_kwargs or {})
 
-    def _make_device(
-        name: Optional[str],
-        wires: int,
-        device_shots: Optional[int],
-        extra_kwargs: Optional[dict[str, Any]] = None,
-    ):
+    def _make_device(name: Optional[str], wires: int, device_shots: Optional[int]):
         """Create a PennyLane device with optional shot-based execution."""
-        kwargs = dict(extra_kwargs or {})
-        kwargs.pop("wires", None)
-        kwargs.pop("shots", None)
-        if device_shots is not None and device_shots > 0:
-            kwargs["shots"] = device_shots
-        if name is not None:
-            return qml.device(name, wires=wires, **kwargs)
-        # Backwards-compatible preference for lightning if available.
-        try:
-            return qml.device("lightning.qubit", wires=wires, **kwargs)
-        except Exception:
-            return qml.device("default.qubit", wires=wires, **kwargs)
+        return build_qml_device(
+            qml,
+            device_name=name,
+            wires=wires,
+            device_kwargs=device_kwargs_local,
+            shots=device_shots,
+        )
 
     # Build the molecule from user-provided symbols/geometry.
     # PySCF accepts either a multiline string or a list of (symbol, (x,y,z)).
@@ -617,8 +601,8 @@ def adapt_vqe(
         raise ValueError("commutator_mode='statevec' requires analytic commutator_shots")
     if commutator_debug and comm_shots is not None and comm_shots > 0:
         raise ValueError("commutator_debug requires analytic commutator_shots")
-    dev_comm = _make_device(device_name, qubits, comm_shots, device_kwargs_local)
-    dev = _make_device(device_name, qubits, shots, device_kwargs_local)
+    dev_comm = _make_device(device_name, qubits, comm_shots)
+    dev = _make_device(device_name, qubits, shots)
     dev_state = None
     dev_comm_state = None
 
@@ -635,8 +619,8 @@ def adapt_vqe(
         return qml.expval(comm_op)
 
     if commutator_mode == "statevec" or commutator_debug:
-        dev_state = _make_device(device_name, qubits, None, device_kwargs_local)
-        dev_comm_state = _make_device(device_name, qubits, None, device_kwargs_local)
+        dev_state = _make_device(device_name, qubits, None)
+        dev_comm_state = _make_device(device_name, qubits, None)
 
         @qml.qnode(dev_state)
         def current_state(params, ash_excitation, hf_state):
@@ -679,6 +663,12 @@ def adapt_vqe(
 
     worker_count = _resolve_worker_count(max_workers)
     backend = _resolve_parallel_backend(parallel_backend)
+    worker_count, backend = resolve_gpu_parallelism(
+        device_name=device_name,
+        worker_count=worker_count,
+        parallel_backend=backend,
+        context="ADAPT-VQE commutator screening",
+    )
     executor = None
     if parallel_gradients and worker_count > 1:
         if backend == "process":
@@ -720,7 +710,7 @@ def adapt_vqe(
         comm_from_ansatz = None
 
         if commutator_mode == "statevec":
-            local_dev_state = _make_device(device_name, qubits, None, device_kwargs_local)
+            local_dev_state = _make_device(device_name, qubits, None)
 
             @qml.qnode(local_dev_state)
             def comm_from_state(state, comm_op_local):
@@ -728,24 +718,14 @@ def adapt_vqe(
                 return qml.expval(comm_op_local)
 
             if commutator_debug:
-                local_dev_ansatz = _make_device(
-                    device_name,
-                    qubits,
-                    comm_shots,
-                    device_kwargs_local,
-                )
+                local_dev_ansatz = _make_device(device_name, qubits, comm_shots)
 
                 @qml.qnode(local_dev_ansatz)
                 def comm_from_ansatz(params_local, ash_local, hf_state_local, comm_op_local):
                     _apply_ansatz(hf_state_local, ash_local, params_local)
                     return qml.expval(comm_op_local)
         else:
-            local_dev_ansatz = _make_device(
-                device_name,
-                qubits,
-                comm_shots,
-                device_kwargs_local,
-            )
+            local_dev_ansatz = _make_device(device_name, qubits, comm_shots)
 
             @qml.qnode(local_dev_ansatz)
             def comm_from_ansatz(params_local, ash_local, hf_state_local, comm_op_local):
@@ -753,12 +733,7 @@ def adapt_vqe(
                 return qml.expval(comm_op_local)
 
             if commutator_debug:
-                local_dev_state = _make_device(
-                    device_name,
-                    qubits,
-                    None,
-                    device_kwargs_local,
-                )
+                local_dev_state = _make_device(device_name, qubits, None)
 
                 @qml.qnode(local_dev_state)
                 def comm_from_state(state, comm_op_local):

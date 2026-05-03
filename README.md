@@ -1,131 +1,208 @@
-QCANT
-==============================
-[//]: # (Badges)
+# QCANT
+
 [![CI](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml/badge.svg?branch=main)](https://github.com/asthanalab/QCANT/actions/workflows/CI.yaml?query=branch%3Amain)
 [![codecov](https://codecov.io/gh/asthanalab/QCANT/branch/main/graph/badge.svg)](https://codecov.io/gh/asthanalab/QCANT/branch/main)
 [![Docs](https://img.shields.io/badge/docs-GitHub%20Pages-blue)](https://asthanalab.github.io/QCANT/)
 
+QCANT is a research software package for near-term quantum chemistry algorithms,
+statevector workflows, and accelerator studies. It combines PySCF/PennyLane
+chemistry setup with ADAPT-style ansatz construction, qscEOM projected spectra,
+Krylov dynamics, finite-temperature TEPID workflows, optional Qulacs CPU
+acceleration, and explicit single-GPU execution paths.
 
-Utilities for near-term applications of quantum computing in chemistry and materials science.
+The project is being prepared as an API-compatible release candidate. Existing
+CPU behavior remains the default; GPU acceleration is opt-in.
 
-This repository currently contains a lightweight, template-derived QCANT package. The public API is small
-and intended to grow as project modules are added.
+## What QCANT Provides
+
+| Area | Public entry points | Notes |
+| --- | --- | --- |
+| Adaptive ansatzes | `QCANT.adapt_vqe`, `QCANT.gcim`, `QCANT.tepid_adapt`, `QCANT.cvqe` | Active-space chemistry workflows for ground-state and finite-temperature studies. |
+| Spectroscopy | `QCANT.qscEOM` | Projected qscEOM spectra from ADAPT/TEPID ansatzes or explicit excitations. |
+| Krylov dynamics | `QCANT.qrte`, `QCANT.qrte_pmte`, `QCANT.qkud`, `QCANT.exact_krylov`, `QCANT.adaptKrylov` | Real-time, unitary-decomposition, exact Krylov, and ADAPT+Krylov workflows. |
+| Accelerators | `*_qulacs`, `device_name="lightning.gpu"`, `array_backend="cupy"` | Qulacs is CPU-only; GPU support is single-GPU and explicit. |
+| Standalone workflow | `python -m standalone.tepid_qsceom` | Self-contained TEPID/qscEOM CLI and configs. |
 
 ## Install
 
-You can install QCANT from PyPI:
+QCANT supports Python 3.11 and 3.12.
+
+For users:
 
 ```bash
-pip install QCANT
+python -m pip install QCANT
 ```
 
-QCANT requires scientific Python dependencies (installed automatically when you `pip install QCANT`):
-
-- `numpy<2`, `scipy<2`
-- `pennylane`
-- `pyscf`
-- `autoray<0.7`
-
-For development (recommended: conda env for the full stack):
+For development from this repository:
 
 ```bash
 conda env create -f devtools/conda-envs/qcant.yaml
 conda activate qcant
-pip install -e . --no-deps
+python -m pip install -e . --no-deps
 ```
 
-For development (pip/venv):
+Optional CPU simulator acceleration:
 
 ```bash
-pip install -e .
+python -m pip install -e ".[qulacs]"
 ```
 
-To enable the optional Qulacs simulator backend:
+Optional single-GPU acceleration:
 
 ```bash
-pip install -e ".[qulacs]"
+python -m pip install -e ".[gpu]"
 ```
 
-For users (once QCANT is published to PyPI):
+For Talon GPU nodes, start from the CUDA 12 environment:
 
 ```bash
-pip install QCANT
+conda env create -f devtools/conda-envs/qcant-gpu.yaml
+conda activate qcant-gpu
+python -m pip install -e . --no-deps
 ```
-
-## Release (PyPI)
-
-This repo is configured to publish to PyPI from GitHub Actions using Trusted Publishing.
-
-1. Create the project on PyPI and enable "Trusted Publishing" for:
-	- Owner: `srivathsanps-quantum`
-	- Repo: `QCANT`
-	- Workflow: `publish-pypi.yml`
-2. Tag a release (tag must start with a digit, e.g. `1.0.0`) and push the tag:
-
-```bash
-git tag 1.0.0
-git push origin 1.0.0
-```
-
-That tag push triggers the publish workflow.
 
 ## Quickstart
 
 ```python
+import numpy as np
 import QCANT
 
-print(QCANT.canvas())
+symbols = ["H", "H"]
+geometry = np.array([[0.0, 0.0, 0.0], [0.0, 0.0, 1.5]])
+
+params, excitations, energies = QCANT.adapt_vqe(
+    symbols=symbols,
+    geometry=geometry,
+    adapt_it=1,
+    basis="sto-3g",
+    charge=0,
+    spin=0,
+    active_electrons=2,
+    active_orbitals=2,
+    device_name="default.qubit",
+    optimizer_maxiter=25,
+)
+
+roots = QCANT.qscEOM(
+    symbols=symbols,
+    geometry=geometry,
+    active_electrons=2,
+    active_orbitals=2,
+    charge=0,
+    ansatz=(params, excitations, energies),
+    basis="sto-3g",
+    shots=0,
+)
+
+print("ADAPT energy:", energies[-1])
+print("qscEOM roots:", roots[0])
 ```
 
-## Qulacs Backend
+More runnable inputs are in `examples/`:
 
-QCANT also exposes optional Qulacs-backed exact-state routines for the
-simulator-heavy algorithms:
+```bash
+python examples/run_adapt_vqe_h2.py
+python examples/run_qsceom_h2.py
+python examples/run_tepid_adapt_h2.py
+python examples/run_gpu_dense_hchain.py --atoms 4
+python examples/run_standalone_tepid_qsceom_h2.py
+```
 
-- `QCANT.qkud_qulacs`
-- `QCANT.qrte_qulacs`
-- `QCANT.qrte_pmte_qulacs`
-- `QCANT.adapt_vqe_qulacs`
-- `QCANT.cvqe_qulacs`
+Generated example outputs are written under `examples/outputs/` and are ignored
+by git.
 
-The Qulacs path is aimed at reducing simulator overhead rather than replacing
-the chemistry stack. PySCF and PennyLane are still used for Hamiltonian and
-active-space construction, while Qulacs handles the state evolution and
-expectation-value hot loops.
+## GPU Acceleration
 
-The current speed-focused implementation does three main things:
+QCANT has two explicit GPU paths:
 
-- compiles PennyLane chemistry gates once into reusable Qulacs parametric circuits
-- uses Qulacs backprop for native ADAPT-VQE gradients
-- reduces CVQE inner optimization by solving the selected-determinant
-  coefficients in the current reference space and optimizing only the ansatz
-  parameters
+- PennyLane device acceleration with `device_name="lightning.gpu"` for
+  `adapt_vqe`, `qscEOM`, `gcim`, `qrte`, and `qrte_pmte`.
+- CuPy dense linear algebra with `array_backend="cupy"` for `cvqe`,
+  `tepid_adapt`, `qkud`, `exact_krylov`, and the standalone `tepid_qsceom`
+  workflow.
 
-For larger exact-state runs, prefer `evolution_mode="trotter"` in the Qulacs
-QRTE/QKUD routines. The `"sparse"` mode still materializes the Hamiltonian
-matrix and is not the scalable choice near the 16-20 qubit range.
+CPU behavior is preserved when no GPU option is passed. Sparse paths remain
+CPU-only in this release:
+
+- `qscEOM(projector_backend="sparse_number_preserving")`
+- `qkud(..., use_sparse=True)`
+- `exact_krylov(..., use_sparse=True)`
+- all `*_qulacs` entry points
+
+One GPU per Slurm task is the supported model. On Talon, use `talon32`,
+`talon33`, or `talon35`; do not use `talon04` for GPU work.
+
+```bash
+PARTITION=talon-gpu32 NODE=talon32 GPUS=1 \
+  scripts/run_on_talon_gpu.sh \
+  'python scripts/benchmark_gpu_speedups.py --profile h6 --outdir benchmarks/gpubenchmark --gpu-device lightning.gpu'
+```
+
+See `docs/gpu_acceleration.rst` for install notes, fallback behavior, and
+benchmarking guidance.
+
+## Benchmarks
+
+QCANT benchmark scripts report both raw runtime and speedup relative to the CPU
+baseline:
+
+```bash
+python scripts/benchmark_gpu_speedups.py --profile h6 --repeats 2 --outdir benchmarks/gpubenchmark
+python scripts/benchmark_gpu_speedups.py --profile small --repeats 2 --outdir benchmarks/gpu_speedups_small
+python scripts/benchmark_hchain_gpu_capability.py --atoms 4 6
+python scripts/benchmark_hchain_sector_gpu_capability.py --atoms 6 8
+python scripts/benchmark_hchain_hybrid_capability.py --atoms 6
+```
+
+The release H6 benchmark writes `benchmarks/gpubenchmark/h6_speedups.csv`,
+`benchmarks/gpubenchmark/h6_speedup_summary.png`, and one speedup plot per code
+path under `benchmarks/gpubenchmark/plots/`. Qulacs rows are labeled
+`qulacs_cpu` because they are CPU accelerator measurements, not GPU runs.
+
+Important interpretation:
+
+- End-to-end small chemistry jobs may not be faster on GPU because PySCF setup,
+  device construction, and host/device transfers dominate.
+- Dense full-space H8 in STO-3G is not a practical V100 target because the full
+  dense Hamiltonian is too large.
+- The useful GPU capability appears in the dense or sector linear-algebra hot
+  loops once the Hamiltonian/batches are already built.
+
+Curated benchmark references live under `benchmarks/reference/`. Timestamped
+benchmark output directories are ignored.
 
 ## Documentation
 
-Hosted documentation:
+Hosted docs:
 
 - https://asthanalab.github.io/QCANT/
 
-The documentation lives in `docs/` and is built with Sphinx:
+Build locally:
 
 ```bash
 cd docs
 make html
 ```
 
-The output will be in `docs/_build/html`.
+The generated site is written to `docs/_build/html`.
 
-### Copyright
+## Release Checklist
 
-Copyright (c) 2025, Asthana Lab
+Before tagging:
 
+```bash
+python -m pytest -q QCANT/tests
+python -m compileall QCANT standalone scripts examples
+cd docs && make html
+python -m build
+python -m twine check dist/*
+```
 
-#### Acknowledgements
- 
-Project based on the 
-[Computational Molecular Science Python Cookiecutter](https://github.com/molssi/cookiecutter-cms) version 1.11.
+This repository publishes to PyPI from GitHub Actions through trusted
+publishing when a version tag is pushed.
+
+## Acknowledgements
+
+QCANT's repository structure began from the Computational Molecular Science
+Python Cookiecutter. The scientific implementation, acceleration work, and
+release documentation are maintained by Asthana Lab contributors.

@@ -102,6 +102,13 @@ Boltzmann reweighting
 If you already have a truncated spectrum and just want new thermal weights for
 another temperature, use :func:`QCANT.tepid_boltzmann_weights`.
 
+Backend Control
+---------------
+
+Use ``array_backend="numpy"`` for explicit CPU dense arrays or
+``array_backend="cupy"`` for opt-in GPU dense arrays after CPU chemistry setup.
+``array_backend="auto"`` preserves the default CPU behavior.
+
 Notes
 -----
 - The current QCANT implementation is analytic/statevector-only and requires

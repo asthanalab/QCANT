@@ -1,4 +1,4 @@
-QCANT.tepid\_adapt
+﻿QCANT.tepid\_adapt
 ==================
 
 .. currentmodule:: QCANT

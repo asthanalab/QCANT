@@ -7,6 +7,10 @@ It contains enough local code to run:
 - analytic qscEOM
 - TEPID-ADAPT followed by qscEOM
 
+The standalone workflow mirrors the package-level dense backend policy:
+`array_backend="auto"` preserves CPU behavior, while `"cupy"` requests opt-in
+GPU dense linear algebra when CuPy is installed and a CUDA-visible GPU exists.
+
 ## Quick start
 
 Install the external dependencies:
@@ -72,6 +76,7 @@ This writes:
 - `examples/`: runnable example scripts and generated example outputs
 - `docs/`: standalone documentation
 - `outputs/`: smoke-test outputs and user runs
+  (generated outputs are ignored by git)
 
 Recommended install/run details are in [docs/INSTALL.md](./docs/INSTALL.md).
 

@@ -1,0 +1,17 @@
+atoms,qubits,dimension,dense_matrix_gib,batch_size,cpu_median_seconds,cpu_std_seconds,gpu_median_seconds,gpu_std_seconds,speedup_vs_cpu,status,note
+4,8,256,0.000977,1,2.2e-05,2e-06,0.000218,0.000123,0.100449,timed,dense Hamiltonian matmul after CPU chemistry setup
+4,8,256,0.000977,8,3.5e-05,1.8e-05,0.000242,8.1e-05,0.1455,timed,dense Hamiltonian matmul after CPU chemistry setup
+4,8,256,0.000977,32,7.5e-05,3e-06,0.000257,6e-06,0.290239,timed,dense Hamiltonian matmul after CPU chemistry setup
+4,8,256,0.000977,128,0.000219,4e-06,0.00023,2.7e-05,0.948551,timed,dense Hamiltonian matmul after CPU chemistry setup
+6,12,4096,0.25,1,0.003486,2e-05,0.000425,1.6e-05,8.195047,timed,dense Hamiltonian matmul after CPU chemistry setup
+6,12,4096,0.25,8,0.009024,4.7e-05,0.000471,1.3e-05,19.152027,timed,dense Hamiltonian matmul after CPU chemistry setup
+6,12,4096,0.25,32,0.015904,0.000198,0.000835,1.4e-05,19.03858,timed,dense Hamiltonian matmul after CPU chemistry setup
+6,12,4096,0.25,128,0.043289,0.0008,0.002836,1.1e-05,15.264398,timed,dense Hamiltonian matmul after CPU chemistry setup
+8,16,65536,64.0,1,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+8,16,65536,64.0,8,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+8,16,65536,64.0,32,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+8,16,65536,64.0,128,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+10,20,1048576,16384.0,1,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+10,20,1048576,16384.0,8,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+10,20,1048576,16384.0,32,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00
+10,20,1048576,16384.0,128,,,,,,skipped,dense complex128 Hamiltonian exceeds max_dense_gib=12.00

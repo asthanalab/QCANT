@@ -15,7 +15,9 @@ in other QCANT algorithms (PySCF CASCI -> PennyLane qubit Hamiltonian), then:
 
 from __future__ import annotations
 
-from typing import Optional, Sequence
+from typing import Mapping, Optional, Sequence
+
+from .._accelerator import build_qml_device
 
 
 def _validate_inputs(
@@ -77,6 +79,7 @@ def gcim(
     active_electrons: int,
     active_orbitals: int,
     device_name: Optional[str] = None,
+    device_kwargs: Optional[Mapping[str, object]] = None,
     shots: Optional[int] = None,
     hamiltonian_cutoff: float = 1e-20,
     pool_sample_size: Optional[int] = None,
@@ -113,6 +116,8 @@ def gcim(
     device_name
         PennyLane device name, defaulting to ``lightning.qubit`` then
         ``default.qubit``.
+    device_kwargs
+        Optional keyword arguments forwarded to ``qml.device``.
     shots
         Present for API compatibility with :func:`QCANT.adapt_vqe`. GCIM needs
         analytic statevector execution, so only ``None`` or ``0`` is accepted.
@@ -189,15 +194,13 @@ def gcim(
         ) from exc
 
     def _make_device(name: Optional[str], wires: int):
-        if name is not None:
-            try:
-                return qml.device(name, wires=wires)
-            except Exception:
-                return qml.device("default.qubit", wires=wires)
-        try:
-            return qml.device("lightning.qubit", wires=wires)
-        except Exception:
-            return qml.device("default.qubit", wires=wires)
+        return build_qml_device(
+            qml,
+            device_name=name,
+            wires=wires,
+            device_kwargs=device_kwargs,
+            shots=None,
+        )
 
     # ------------------------------------------------------------------
     # 1) Molecule and active-space Hamiltonian construction.

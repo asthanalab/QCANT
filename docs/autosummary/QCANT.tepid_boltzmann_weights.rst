@@ -1,4 +1,4 @@
-QCANT.tepid\_boltzmann\_weights
+﻿QCANT.tepid\_boltzmann\_weights
 ===============================
 
 .. currentmodule:: QCANT

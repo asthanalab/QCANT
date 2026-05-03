@@ -5,18 +5,11 @@ channels:
 
   - defaults
 dependencies:
-    # Base depends
-  - python
+  - python>=3.11,<3.13
   - pip
-  
+  - sphinx
   - pydata-sphinx-theme
   - sphinx-design
   - sphinx-copybutton
-
-
-
-
-    # Pip-only installs
   - pip:
     - -e ../
-

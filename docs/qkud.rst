@@ -49,6 +49,8 @@ Options
 - ``use_sparse``: use a sparse Hamiltonian representation for state updates.
 - ``basis_threshold``: drop amplitudes below this threshold after each basis update and
   re-normalize the state (use 0.0 to disable).
+- ``array_backend``: ``"numpy"`` for CPU dense arrays, ``"cupy"`` for opt-in
+  GPU dense arrays, or ``"auto"`` for the default CPU behavior.
 
 Outputs
 -------
@@ -68,3 +70,5 @@ Notes
 - This implementation uses matrix-based time evolution (no circuit execution).
 - ``epsilon`` must be positive; smaller values can lead to nearly dependent
   basis vectors.
+- GPU mode uses the dense path only. ``use_sparse=True`` remains CPU-only in
+  this release.

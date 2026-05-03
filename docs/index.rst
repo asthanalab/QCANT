@@ -1,67 +1,70 @@
-.. QCANT documentation master file, created by
-   sphinx-quickstart on Thu Mar 15 13:55:56 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
+QCANT Documentation
+===================
 
-Welcome to QCANT's documentation!
-=========================================================
+.. raw:: html
+
+   <div class="qcant-hero">
+     <h2>Quantum chemistry algorithms, accelerator paths, and reproducible examples.</h2>
+     <p>
+       QCANT brings together PySCF/PennyLane chemistry setup, ADAPT-style
+       ansatz construction, qscEOM spectra, Krylov dynamics, finite-temperature
+       workflows, CPU Qulacs acceleration, and explicit single-GPU execution.
+     </p>
+   </div>
+
+QCANT is built for near-term quantum computing research where the same molecule
+often needs to be explored across algorithm families and hardware backends. The
+CPU path is the default; GPU acceleration is opt-in and documented explicitly.
 
 .. grid:: 1 1 2 2
 
-    .. grid-item-card:: Getting Started
+   .. grid-item-card:: Start Running
       :margin: 0 3 0 0
-      
-      Learn the basics of using QCANT.
+
+      Install QCANT, run H2/H4 examples, and understand the expected outputs.
 
       .. button-link:: ./getting_started.html
          :color: primary
          :outline:
          :expand:
 
-         To the Getting Started Guide
+         Getting Started
 
-      
-
-    .. grid-item-card::  User Guide
+   .. grid-item-card:: Algorithm Map
       :margin: 0 3 0 0
-      
-      An in-depth guide for users.
+
+      Choose between ADAPT-VQE, qscEOM, GCIM, Krylov, CVQE, and TEPID workflows.
 
       .. button-link:: ./user_guide.html
          :color: primary
          :outline:
          :expand:
 
-         To the User Guide
-      
-      
+         User Guide
 
-    .. grid-item-card:: API Reference
+   .. grid-item-card:: GPU And Talon
       :margin: 0 3 0 0
-      
-      How to use the API of QCANT.
+
+      Use ``lightning.gpu`` or ``array_backend="cupy"`` safely on one GPU.
+
+      .. button-link:: ./gpu_acceleration.html
+         :color: primary
+         :outline:
+         :expand:
+
+         GPU Guide
+
+   .. grid-item-card:: API Reference
+      :margin: 0 3 0 0
+
+      Browse the public package API and docstring-generated reference pages.
 
       .. button-link:: ./api.html
          :color: primary
          :outline:
          :expand:
 
-         To the API Reference.
-
-      
-
-    .. grid-item-card::  Developer Guide
-      :margin: 0 3 0 0
-      
-      How to contribute to QCANT.
-
-      .. button-link:: ./developer_guide.html
-         :color: primary
-         :outline:
-         :expand:
-
-         To the Developer Guide
-
+         API Reference
 
 .. toctree::
    :maxdepth: 2
@@ -70,6 +73,25 @@ Welcome to QCANT's documentation!
 
    getting_started
    user_guide
+   examples
+   gpu_acceleration
+   benchmarking
+   parallelization
+   qulacs_backend
    api
    developer_guide
 
+.. toctree::
+   :maxdepth: 1
+   :caption: Algorithms
+   :hidden:
+
+   adapt_vqe
+   adapt_krylov
+   qsceom
+   gcim
+   cvqe
+   tepid_adapt
+   krylov
+   qkud
+   qrte
