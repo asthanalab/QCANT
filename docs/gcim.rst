@@ -47,17 +47,40 @@ Basic usage
 Key options
 -----------
 
-- ``theta``: fixed generator angle per selected operator (default ``pi/4``).
+- ``theta``: fixed angle in ``exp(theta * A / 2)`` (default ``pi/4``).
 - ``pool_sample_size``/``pool_seed``: random operator-pool subsampling.
 - ``pool_type``: operator pool construction strategy:
 
   - ``"sd"``: reference-based singles+doubles pool,
-  - ``"singlet_sd"``: singlet-adapted paired singles+doubles pool (closed-shell active spaces),
+  - ``"singlet_sd"``: complete spin-adapted singles+doubles pool (closed-shell active spaces),
   - ``"gsd"``: generalized spin-conserving singles+doubles pool.
 
 - ``regularization``: overlap-matrix diagonal regularization before solving
   ``M c = S c E``.
 - ``return_details``: return debug artifacts (state basis, projected matrices).
+
+Complete SingletSD pool
+-----------------------
+
+For ``o`` occupied and ``v`` virtual spatial orbitals, ``singlet_sd`` contains
+``o*v`` singles and ``C(o+1,2)*C(v+1,2) + C(o,2)*C(v,2)`` doubles. Both double
+channels commute with total spin; the triplet-pair contraction is a spin scalar,
+not a triplet-state ansatz. CAS(6e,6o) therefore has 9 singles + 45 doubles = 54
+operators. CAS(4e,4o), CAS(8e,6o), and CAS(10e,8o) have 14, 44, and 135.
+
+Every generator is normalized to unit Euclidean norm of its normal-ordered
+fermionic coefficients, following the original SingletSD GCIM construction.
+This corrects the former paired-only implementation (18 operators for
+CAS(6e,6o)), which also left its coefficients unnormalized. Consequently old
+``singlet_sd`` trajectories are not preserved at the same numerical ``theta``.
+The angle convention, overlap regularization, unique-selection policy, and
+other pool types are unchanged. This pool correction alone does not establish
+reproduction of any historical convergence figure.
+
+Returned SingletSD excitation labels use spatial indices: ``[i,a]`` for singles
+and ``[i,j,a,b,pair_spin]`` for doubles, with ``pair_spin`` 0 or 1. This replaces
+the paired-only implementation's spin-orbital labels. ``return_details=True``
+also reports ``pool_type``, ``pool_size``, and all ``pool_excitations``.
 
 Iteration policy
 ----------------

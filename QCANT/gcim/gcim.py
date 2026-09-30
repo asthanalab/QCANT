@@ -130,11 +130,12 @@ def gcim(
         Operator-pool construction strategy:
 
         - ``"sd"``: reference-based singles+doubles pool,
-        - ``"singlet_sd"``: singlet-adapted paired singles+doubles pool
+        - ``"singlet_sd"``: complete spin-adapted singles+doubles pool
           (closed-shell active spaces), and
         - ``"gsd"``: generalized spin-conserving singles+doubles pool.
     theta
-        Fixed generator angle used for each selected operator.
+        Fixed angle used in ``exp(theta * A / 2)`` for each selected operator.
+        For ``singlet_sd``, A has unit normal-ordered fermionic coefficient norm.
     regularization
         Diagonal Tikhonov regularization added to overlap matrix ``S`` before
         solving the generalized eigenproblem.
@@ -161,7 +162,9 @@ def gcim(
 
         - ``params`` is a vector of selected angles (all equal to ``theta``),
         - ``ash_excitation`` is the selected excitation list (same style as
-          ADAPT-VQE), and
+          ADAPT-VQE). For ``singlet_sd``, labels are spatial ``[i, a]`` or
+          ``[i, j, a, b, pair_spin]``; the last entry distinguishes the two
+          spin-scalar double channels, and
         - ``energies`` is the per-iteration GCIM minimum energy.
 
         If ``return_details=True``, returns
@@ -282,51 +285,9 @@ def gcim(
         return labels, pool_fermi_local
 
     def _build_singlet_sd_pool():
-        n_alpha, n_beta = mycas_ref.nelecas
-        if n_alpha != n_beta:
-            raise ValueError("pool_type='singlet_sd' requires a closed-shell active space")
+        from ._singlet_sd import build_singlet_sd_pool
 
-        n_occ_spatial = int(n_alpha)
-        n_spatial = int(active_orbitals)
-        occ = range(n_occ_spatial)
-        virt = range(n_occ_spatial, n_spatial)
-
-        labels = []
-        pool_fermi_local = []
-
-        # Singlet-adapted paired singles:
-        # (a†_{a,alpha} a_{i,alpha} + a†_{a,beta} a_{i,beta}) - h.c.
-        for i in occ:
-            for a in virt:
-                ia = 2 * i
-                ib = 2 * i + 1
-                aa = 2 * a
-                ab = 2 * a + 1
-                op = (
-                    from_string(f"{aa}+ {ia}-")
-                    + from_string(f"{ab}+ {ib}-")
-                    - from_string(f"{ia}+ {aa}-")
-                    - from_string(f"{ib}+ {ab}-")
-                )
-                labels.append([ia, aa, ib, ab])
-                pool_fermi_local.append(op)
-
-        # Singlet-adapted paired doubles:
-        # a†_{a,alpha} a†_{a,beta} a_{i,beta} a_{i,alpha} - h.c.
-        for i in occ:
-            for a in virt:
-                ia = 2 * i
-                ib = 2 * i + 1
-                aa = 2 * a
-                ab = 2 * a + 1
-                op = (
-                    from_string(f"{ab}+ {aa}+ {ib}- {ia}-")
-                    - from_string(f"{ia}+ {ib}+ {aa}- {ab}-")
-                )
-                labels.append([ia, ib, aa, ab])
-                pool_fermi_local.append(op)
-
-        return labels, pool_fermi_local
+        return build_singlet_sd_pool(mycas_ref.nelecas, ncas)
 
     def _build_gsd_pool():
         def spin_val(idx: int) -> int:
@@ -526,6 +487,9 @@ def gcim(
 
     if return_details:
         details = {
+            "pool_type": pool_type,
+            "pool_size": len(pool_ops),
+            "pool_excitations": pool_excitations,
             "selected_operator_indices": np.asarray(selected_indices, dtype=int),
             "state_basis_history": details_states,
             "projected_hamiltonians": details_m,
