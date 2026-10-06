@@ -50,12 +50,12 @@ def _validate_inputs(
         raise ValueError("pool_sample_size must be > 0")
     if theta <= 0:
         raise ValueError("theta must be > 0")
-    if regularization < 0:
-        raise ValueError("regularization must be >= 0")
+    if regularization != 0:
+        raise ValueError("Only overlap thresholding is supported; set regularization=0")
     if overlap_tol <= 0:
         raise ValueError("overlap_tol must be > 0")
-    if pool_type not in {"sd", "singlet_sd", "gsd"}:
-        raise ValueError("pool_type must be one of {'sd', 'singlet_sd', 'gsd'}")
+    if pool_type not in {"sd", "singlet_sd", "gsd", "singlet_gsd"}:
+        raise ValueError("Unknown pool_type")
     if max_iterations is not None and max_iterations <= 0:
         raise ValueError("max_iterations must be > 0 when provided")
 
@@ -86,10 +86,11 @@ def gcim(
     pool_seed: Optional[int] = None,
     pool_type: str = "sd",
     theta: float = 0.7853981633974483,  # pi/4
-    regularization: float = 1e-10,
-    overlap_tol: float = 1e-12,
+    regularization: float = 0.0,
+    overlap_tol: float = 1e-13,
     max_iterations: Optional[int] = None,
     allow_repeated_operators: bool = True,
+    selection_policy: str = "unique",
     print_progress: bool = True,
     return_details: bool = False,
 ):
@@ -102,8 +103,7 @@ def gcim(
     geometry
         Nuclear coordinates, array-like with shape ``(n_atoms, 3)`` in Angstrom.
     adapt_it
-        Kept for API compatibility. GCIM now hardcodes the number of iterations
-        to the total number of operators in the selected pool.
+        Kept for API compatibility. Use max_iterations to request an endpoint.
     basis
         Basis set name understood by PySCF.
     charge
@@ -132,13 +132,15 @@ def gcim(
         - ``"sd"``: reference-based singles+doubles pool,
         - ``"singlet_sd"``: complete spin-adapted singles+doubles pool
           (closed-shell active spaces), and
-        - ``"gsd"``: generalized spin-conserving singles+doubles pool.
+        - ``"gsd"``: generalized spin-conserving singles+doubles pool,
+        - ``"singlet_gsd"``: normalized spin-scalar generalized singles and
+          doubles used by Zheng et al. (npj Quantum Information 10, 127).
     theta
-        Fixed angle used in ``exp(theta * A / 2)`` for each selected operator.
+        Direct coefficient in ``exp(theta * A)`` for each selected operator.
         For ``singlet_sd``, A has unit normal-ordered fermionic coefficient norm.
     regularization
-        Diagonal Tikhonov regularization added to overlap matrix ``S`` before
-        solving the generalized eigenproblem.
+        Must be zero. Redundant directions are removed by overlap thresholding,
+        never by shifting the overlap matrix.
     overlap_tol
         Threshold for overlap-matrix eigenvalue filtering in canonical
         orthogonalization.
@@ -147,8 +149,13 @@ def gcim(
         omitted, GCIM retains the legacy behavior of iterating over the full
         operator pool.
     allow_repeated_operators
-        Kept for API compatibility. GCIM now always enforces unique operator
-        selection, so repeated operators are not used.
+        Kept for API compatibility and ignored; use selection_policy explicitly.
+    selection_policy
+        "unique" selects each operator once; "cycle" refreshes eligibility after
+        each complete pass; "repeat_after_first" allows arbitrary reuse after
+        one unique pass; "unrestricted" allows reuse immediately. All preserve
+        the original reference, full product sequence and accumulated subspace.
+        Reuse beyond one pass requires an explicit max_iterations.
     print_progress
         If True, print iteration/energy updates.
     return_details
@@ -171,6 +178,9 @@ def gcim(
         ``(params, ash_excitation, energies, details)``.
     """
     # pylint: disable=too-many-locals, too-many-statements, too-many-branches, too-many-arguments
+    from ._selection import POLICIES, eligible_indices
+    if selection_policy not in POLICIES:
+        raise ValueError("Unknown repetition policy")
     n_atoms = _validate_inputs(
         symbols=symbols,
         geometry=geometry,
@@ -327,6 +337,9 @@ def gcim(
         pool_excitations, pool_fermi = _build_sd_pool()
     elif pool_type == "singlet_sd":
         pool_excitations, pool_fermi = _build_singlet_sd_pool()
+    elif pool_type == "singlet_gsd":
+        from ._singlet_gsd import build_singlet_gsd_pool
+        pool_excitations, pool_fermi = build_singlet_gsd_pool(ncas)
     else:
         pool_excitations, pool_fermi = _build_gsd_pool()
 
@@ -336,7 +349,9 @@ def gcim(
         raise ValueError("operator pool is empty for the provided active space")
     fixed_iterations = int(len(pool_ops))
     if max_iterations is not None:
-        fixed_iterations = min(int(max_iterations), int(len(pool_ops)))
+        fixed_iterations = int(max_iterations)
+        if selection_policy == "unique":
+            fixed_iterations = min(fixed_iterations, len(pool_ops))
 
     # ------------------------------------------------------------------
     # 3) Device circuits for state prep and commutators.
@@ -353,13 +368,13 @@ def gcim(
     def _ansatz_state(selected_indices):
         qml.BasisState(hf_occ, wires=wires)
         for idx in selected_indices:
-            qml.exp(pool_ops[int(idx)] * (float(theta) / 2.0))
+            qml.exp(pool_ops[int(idx)] * float(theta))
         return qml.state()
 
     @qml.qnode(dev)
     def _single_state(idx):
         qml.BasisState(hf_occ, wires=wires)
-        qml.exp(pool_ops[int(idx)] * (float(theta) / 2.0))
+        qml.exp(pool_ops[int(idx)] * float(theta))
         return qml.state()
 
     @qml.qnode(dev)
@@ -373,31 +388,16 @@ def gcim(
         s_mat = basis_array.conj() @ basis_array.T
         m_mat = basis_array.conj() @ (h_matrix @ basis_array.T)
 
-        # Canonical orthogonalization improves stability before solving M c = S c E.
-        s_vals, s_vecs = np.linalg.eigh((s_mat + s_mat.conj().T) / 2.0)
-        keep = s_vals > float(overlap_tol)
-        if not np.any(keep):
-            raise ValueError("overlap matrix is numerically singular; basis collapsed")
-
-        x_mat = s_vecs[:, keep] / np.sqrt(s_vals[keep])[None, :]
-        h_ortho = x_mat.conj().T @ m_mat @ x_mat
-        evals = np.linalg.eigvalsh((h_ortho + h_ortho.conj().T) / 2.0).real
-
-        if regularization > 0.0:
-            n = s_mat.shape[0]
-            evals_reg = eigh(
-                (m_mat + m_mat.conj().T) / 2.0,
-                (s_mat + regularization * np.eye(n)).real,
-                eigvals_only=True,
-            )
-            return float(np.real(evals_reg[0])), m_mat, s_mat
-        return float(np.real(evals[0])), m_mat, s_mat
+        from ._matrix import solve_ritz
+        result = solve_ritz(h_matrix, basis_array.T, overlap_tol)
+        return result["energy"], m_mat, s_mat
 
     # ------------------------------------------------------------------
     # 4) GCIM loop.
     # ------------------------------------------------------------------
     rng = np.random.default_rng(pool_seed)
     selected_indices = []
+    used_indices = set()
     selected_excitations = []
     energies = []
     states = []
@@ -417,8 +417,8 @@ def gcim(
         )
     if print_progress and bool(allow_repeated_operators):
         print(
-            "GCIM enforces unique operator selection; "
-            "allow_repeated_operators is ignored.",
+            "allow_repeated_operators is ignored; "
+            f"using selection_policy={selection_policy}.",
             flush=True,
         )
 
@@ -426,9 +426,8 @@ def gcim(
         if print_progress:
             print("The adapt iteration now is", it, flush=True)
 
-        selected_set = set(int(i) for i in selected_indices)
         remaining = np.array(
-            [idx for idx in range(len(pool_ops)) if idx not in selected_set], dtype=int
+            eligible_indices(len(pool_ops), it, used_indices, selection_policy), dtype=int
         )
         if remaining.size == 0:
             break
@@ -456,6 +455,7 @@ def gcim(
             break
 
         selected_indices.append(max_idx)
+        used_indices.add(max_idx)
         selected_excitations.append(pool_excitations[max_idx])
 
         cumulative_state = _ansatz_state(tuple(selected_indices))
@@ -488,6 +488,9 @@ def gcim(
     if return_details:
         details = {
             "pool_type": pool_type,
+            "selection_policy": selection_policy,
+            "reference_restarts": 0,
+            "retains_accumulated_basis": True,
             "pool_size": len(pool_ops),
             "pool_excitations": pool_excitations,
             "selected_operator_indices": np.asarray(selected_indices, dtype=int),
